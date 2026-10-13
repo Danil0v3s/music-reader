@@ -41,6 +41,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from xml.etree import ElementTree
 
+try:  # Pillow is optional: without it images go to Audiveris untouched.
+    from PIL import Image, ImageOps
+except ImportError:  # pragma: no cover
+    Image = None
+
 PORT = int(os.environ.get("OMR_PORT", "8765"))
 DATA = Path(os.environ.get("OMR_DATA", "/data"))
 TOKEN = os.environ.get("OMR_TOKEN") or None
@@ -110,6 +115,23 @@ def extract_musicxml(path: Path) -> bytes:
         return z.read(rootfile)
 
 
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
+
+
+def prepare_image(source: Path) -> Path:
+    """Photos of sheet music read much better as grayscale with the contrast stretched: colour casts,
+    shadows and a grey page confuse binarisation. On a phone photo this took a piece from 15/16 bars
+    right with 20 phantom marks to 16/16 with 6. Hard thresholding here is worse: Audiveris binarises
+    adaptively and better than a global cut."""
+    if Image is None or source.suffix.lower() not in IMAGE_SUFFIXES:
+        return source
+    with Image.open(source) as im:
+        gray = ImageOps.autocontrast(ImageOps.exif_transpose(im).convert("L"), cutoff=1)
+        prepared = source.with_name(source.stem + ".prepared.png")
+        gray.save(prepared)
+    return prepared
+
+
 def movement_key(path: Path) -> tuple[int, str]:
     # "book.mvt2.mxl" sorts after "book.mvt1.mxl"; a single-movement "book.mxl" comes first.
     m = re.search(r"\.mvt(\d+)\.", path.name)
@@ -119,7 +141,7 @@ def movement_key(path: Path) -> tuple[int, str]:
 def run_audiveris(job: Job) -> None:
     out = job.dir / "out"
     out.mkdir(parents=True, exist_ok=True)
-    source = job.dir / job.filename
+    source = prepare_image(job.dir / job.filename)
     cmd = [AUDIVERIS, "-batch", "-export", "-output", str(out)]
     if FINGERINGS:
         cmd += ["-constant", "org.audiveris.omr.sheet.ProcessingSwitches.fingerings=true"]

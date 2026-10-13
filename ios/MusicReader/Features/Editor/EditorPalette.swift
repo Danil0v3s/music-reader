@@ -103,7 +103,7 @@ final class EditorPalette: UIView {
         }
         marks.append(menuChip("Finger", [
             UIAction(title: "Open string (0)") { [weak self] _ in self?.delegate?.palette(finger: 0) },
-        ] + (1...4).map { f in UIAction(title: "\(f)") { [weak self] _ in self?.delegate?.palette(finger: f) } } + [
+        ] + (1...4).map { (f: Int) in UIAction(title: "\(f)") { [weak self] _ in self?.delegate?.palette(finger: f) } } + [
             UIAction(title: "Thumb") { [weak self] _ in self?.delegate?.palette(finger: 5) },
             UIAction(title: "Clear", attributes: .destructive) { [weak self] _ in self?.delegate?.palette(finger: nil) },
         ]))
@@ -153,7 +153,7 @@ final class EditorPalette: UIView {
             hairline.topAnchor.constraint(equalTo: topAnchor),
             hairline.leadingAnchor.constraint(equalTo: leadingAnchor),
             hairline.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hairline.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
+            hairline.heightAnchor.constraint(equalToConstant: 0.5),
             column.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             column.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 12),
             column.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -12),

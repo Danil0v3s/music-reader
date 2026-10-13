@@ -98,6 +98,19 @@ class ServerTests(unittest.TestCase):
     def test_rejects_other_files(self):
         self.assertEqual(call("POST", "/jobs", b"x", {"X-Filename": "notes.docx"})[0], 415)
 
+    @unittest.skipIf(omr_server.Image is None, "Pillow not installed")
+    def test_photos_are_prepared_as_grayscale(self):
+        from PIL import Image
+        src = TMP / "photo.jpg"
+        Image.new("RGB", (40, 20), (200, 180, 150)).save(src)
+        prepared = omr_server.prepare_image(src)
+        self.assertEqual(prepared.suffix, ".png")
+        with Image.open(prepared) as im:
+            self.assertEqual(im.mode, "L")
+        pdf = TMP / "page.pdf"
+        pdf.write_bytes(b"%PDF")
+        self.assertEqual(omr_server.prepare_image(pdf), pdf, "PDFs pass through")
+
     def test_filename_is_sanitised(self):
         self.assertEqual(omr_server.safe_filename("../../etc/pass wd.PDF"), "pass_wd.pdf")
 

@@ -1,3 +1,4 @@
+import PhotosUI
 import ScoreKit
 import UIKit
 import UniformTypeIdentifiers
@@ -11,6 +12,7 @@ protocol Coordinator: AnyObject {
     func newScore()
     func practice(_ id: UUID, startMeasure: Int)
     func pickFileToImport()
+    func pickPhotoToImport()
     func scanWithCamera()
     func importFile(_ url: URL)
     func showOriginal(_ id: UUID)
@@ -96,11 +98,31 @@ final class AppCoordinator: NSObject, Coordinator {
     // MARK: Import
 
     func pickFileToImport() {
-        var types: [UTType] = [.pdf, .png, .jpeg, .tiff, .xml]
+        var types: [UTType] = [.pdf, .image, .xml]
         if let musicxml = UTType("org.musicxml.musicxml") { types.append(musicxml) }
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
         picker.delegate = self
         top.present(picker, animated: true)
+    }
+
+    func pickPhotoToImport() {
+        var config = PHPickerConfiguration()
+        config.filter = .images
+        config.selectionLimit = 1
+        let picker = PHPickerViewController(configuration: config)
+        picker.delegate = self
+        top.present(picker, animated: true)
+    }
+
+    /// Photos are framed first: recognition works far better on one tightly cropped piece.
+    private func cropThenRecognise(_ image: UIImage, name: String) {
+        let crop = CropViewController(image: image) { [weak self] cropped in
+            guard let self, let data = cropped.jpegData(compressionQuality: 0.92) else { return }
+            self.recognise(data, filename: name, keepOriginal: false)
+        }
+        let nav = UINavigationController(rootViewController: crop)
+        nav.modalPresentationStyle = .fullScreen
+        dismissAll { self.top.present(nav, animated: true) }
     }
 
     func scanWithCamera() {
@@ -130,6 +152,10 @@ final class AppCoordinator: NSObject, Coordinator {
             } catch {
                 alert("Couldn't read the MusicXML", error.localizedDescription)
             }
+            return
+        }
+        if ["png", "jpg", "jpeg", "heic", "tif", "tiff"].contains(ext), let image = UIImage(data: data) {
+            cropThenRecognise(image, name: (url.deletingPathExtension().lastPathComponent) + ".jpg")
             return
         }
         if ext == "mxl" {
@@ -188,6 +214,18 @@ final class AppCoordinator: NSObject, Coordinator {
         let a = UIAlertController(title: title, message: message, preferredStyle: .alert)
         a.addAction(UIAlertAction(title: "OK", style: .default))
         top.present(a, animated: true)
+    }
+}
+
+extension AppCoordinator: PHPickerViewControllerDelegate {
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        guard let provider = results.first?.itemProvider, provider.canLoadObject(ofClass: UIImage.self) else { return }
+        let name = (provider.suggestedName ?? "Photo") + ".jpg"
+        provider.loadObject(ofClass: UIImage.self) { object, _ in
+            guard let image = object as? UIImage else { return }
+            Task { @MainActor in self.cropThenRecognise(image, name: name) }
+        }
     }
 }
 

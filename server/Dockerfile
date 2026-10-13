@@ -16,7 +16,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # directly: the package's install script registers a desktop menu entry, which fails in a container.
 # Audiveris loads GTK 3 through JNA at startup even in batch mode, so libgtk-3 must be present.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl python3 \
+ && apt-get install -y --no-install-recommends ca-certificates curl python3 python3-pil \
       libfreetype6 fontconfig fonts-dejavu-core libxext6 libxrender1 libxtst6 libxi6 libasound2t64 \
       libgtk-3-0t64 \
  && curl -fsSL -o /tmp/audiveris.deb \

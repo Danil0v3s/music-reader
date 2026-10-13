@@ -7,6 +7,7 @@ final class LibraryViewController: UIViewController {
     private let library: ScoreLibrary
     private let onOpen: (UUID) -> Void
     private let onImportFile: () -> Void
+    private let onImportPhoto: () -> Void
     private let onScan: () -> Void
     private let onNew: () -> Void
 
@@ -16,10 +17,11 @@ final class LibraryViewController: UIViewController {
     private var query = ""
 
     init(library: ScoreLibrary, onOpen: @escaping (UUID) -> Void, onImportFile: @escaping () -> Void,
-         onScan: @escaping () -> Void, onNew: @escaping () -> Void) {
+         onImportPhoto: @escaping () -> Void, onScan: @escaping () -> Void, onNew: @escaping () -> Void) {
         self.library = library
         self.onOpen = onOpen
         self.onImportFile = onImportFile
+        self.onImportPhoto = onImportPhoto
         self.onScan = onScan
         self.onNew = onNew
         super.init(nibName: nil, bundle: nil)
@@ -78,8 +80,9 @@ final class LibraryViewController: UIViewController {
     private func addMenu() -> UIMenu {
         UIMenu(children: [
             UIAction(title: "New Score", subtitle: "Write music note by note", image: UIImage(systemName: "square.and.pencil")) { [weak self] _ in self?.onNew() },
-            UIAction(title: "Import PDF or MusicXML", subtitle: "From Files", image: UIImage(systemName: "doc.badge.plus")) { [weak self] _ in self?.onImportFile() },
             UIAction(title: "Scan Sheet Music", subtitle: "With the camera", image: UIImage(systemName: "doc.viewfinder")) { [weak self] _ in self?.onScan() },
+            UIAction(title: "Choose Photo", subtitle: "From your photo library", image: UIImage(systemName: "photo.on.rectangle")) { [weak self] _ in self?.onImportPhoto() },
+            UIAction(title: "Import File", subtitle: "PDF, image or MusicXML from Files", image: UIImage(systemName: "doc.badge.plus")) { [weak self] _ in self?.onImportFile() },
         ])
     }
 

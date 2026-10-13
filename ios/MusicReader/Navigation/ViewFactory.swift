@@ -12,6 +12,7 @@ final class ViewFactory {
     func library() -> LibraryViewController {
         LibraryViewController(library: d.library, onOpen: { [weak self] in self?.coordinator?.openScore($0) },
                               onImportFile: { [weak self] in self?.coordinator?.pickFileToImport() },
+                              onImportPhoto: { [weak self] in self?.coordinator?.pickPhotoToImport() },
                               onScan: { [weak self] in self?.coordinator?.scanWithCamera() },
                               onNew: { [weak self] in self?.coordinator?.newScore() })
     }
