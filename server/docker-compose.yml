@@ -1,0 +1,21 @@
+# docker compose -f server/docker-compose.yml up -d --build
+# Set OMR_TOKEN (in a .env next to this file, or the shell) to require a token from the app.
+services:
+  omr:
+    build: .
+    platform: linux/amd64
+    image: music-reader-omr
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    environment:
+      OMR_TOKEN: ${OMR_TOKEN:-}
+      OMR_TIMEOUT: ${OMR_TIMEOUT:-900}
+      OMR_FINGERINGS: ${OMR_FINGERINGS:-0}
+    volumes:
+      - omr-data:/data
+    # Audiveris on a dense multi-page score can use several GB.
+    mem_limit: 4g
+
+volumes:
+  omr-data:

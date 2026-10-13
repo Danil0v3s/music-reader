@@ -1,0 +1,103 @@
+# XcodeGen manifest: the source of truth for MusicReader.xcodeproj (generated, not committed).
+# Regenerate with: xcodegen generate
+#
+# Same shape as tesla-mate-viewer: the UI-free core lives in the local ScoreKit Swift Package; the iOS UI is
+# the MusicReader target (sources in MusicReader/). `../shared` (the Bravura music font, sample scores) is
+# bundled as a folder so iOS and Android read identical files.
+name: MusicReader
+
+options:
+  bundleIdPrefix: br.com.firstsoft
+  developmentLanguage: en
+  deploymentTarget:
+    iOS: "26.0"
+
+packages:
+  ScoreKit:
+    path: ScoreKit
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: 4PB4ZFW9XF
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: 1
+
+targets:
+  MusicReader:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - MusicReader
+      - path: ../shared
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: ScoreKit
+        product: ScoreKit
+    info:
+      path: MusicReader/Info.plist
+      properties:
+        CFBundleDisplayName: Music Reader
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: Paper
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default Configuration
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIAppFonts:
+          - shared/fonts/Bravura.otf
+        # Playback keeps going with the screen locked (a long piece, a metronome).
+        UIBackgroundModes: [audio]
+        NSMicrophoneUsageDescription: Music Reader listens to your playing to check intonation and to tune.
+        NSCameraUsageDescription: Music Reader scans paper sheet music with the camera.
+        # The recognition server is self-hosted and user-entered, usually on the LAN over plain HTTP.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: Music Reader sends sheet music to your recognition server on the local network.
+        ITSAppUsesNonExemptEncryption: false
+        # Open PDFs and MusicXML from Files, Mail or Safari.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: PDF
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [com.adobe.pdf]
+          - CFBundleTypeName: MusicXML
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Default
+            LSItemContentTypes: [org.musicxml.musicxml]
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: org.musicxml.musicxml
+            UTTypeDescription: MusicXML
+            UTTypeConformsTo: [public.xml]
+            UTTypeTagSpecification:
+              public.filename-extension: [musicxml]
+              public.mime-type: [application/vnd.recordare.musicxml+xml]
+        LSSupportsOpeningDocumentsInPlace: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: br.com.firstsoft.musicreader
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+
+schemes:
+  MusicReader:
+    build:
+      targets:
+        MusicReader: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    archive:
+      config: Release
