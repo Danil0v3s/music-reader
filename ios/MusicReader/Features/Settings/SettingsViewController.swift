@@ -1,3 +1,4 @@
+import Combine
 import ScoreKit
 import UIKit
 
@@ -5,15 +6,18 @@ import UIKit
 final class SettingsViewController: UITableViewController {
     private let settings: SettingsStore
     private let library: ScoreLibrary
+    private let sync: SyncService
     private let sample: () -> Score?
     private var serverStatus = ""
     private var testing = false
+    private var bag = Set<AnyCancellable>()
 
-    private enum Section: Int, CaseIterable { case server, tuning, intonation, playback, library, about }
+    private enum Section: Int, CaseIterable { case server, sync, tuning, intonation, playback, library, about }
 
-    init(settings: SettingsStore, library: ScoreLibrary, sample: @escaping () -> Score?) {
+    init(settings: SettingsStore, library: ScoreLibrary, sync: SyncService, sample: @escaping () -> Score?) {
         self.settings = settings
         self.library = library
+        self.sync = sync
         self.sample = sample
         super.init(style: .insetGrouped)
         title = "Settings"
@@ -24,6 +28,19 @@ final class SettingsViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         tableView.keyboardDismissMode = .interactive
+        sync.status.receive(on: DispatchQueue.main).sink { [weak self] _ in
+            self?.tableView.reloadSections([Section.sync.rawValue], with: .none)
+        }.store(in: &bag)
+    }
+
+    private var syncStatusText: String {
+        switch sync.status.value {
+        case .off: settings.omrConfig == nil ? "Add the server address above first." : "Off"
+        case .syncing: "Syncing…"
+        case .idle(let last?): "Up to date · synced \(last.formatted(.relative(presentation: .named)))"
+        case .idle(nil): "Not synced yet"
+        case .failed(let message): "Couldn't sync: \(message)"
+        }
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int { Section.allCases.count }
@@ -31,6 +48,7 @@ final class SettingsViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section)! {
         case .server: 3
+        case .sync: 3
         case .tuning: 2
         case .intonation: 2
         case .playback: 1
@@ -42,6 +60,7 @@ final class SettingsViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch Section(rawValue: section)! {
         case .server: "Recognition Server"
+        case .sync: "Library on the Server"
         case .tuning: "Tuning"
         case .intonation: "Intonation Practice"
         case .playback: "Playback"
@@ -54,6 +73,7 @@ final class SettingsViewController: UITableViewController {
         switch Section(rawValue: section)! {
         case .server:
             "PDFs and scans are read by Audiveris on your own server (the music-reader-omr Docker image). Enter its address, e.g. 192.168.1.20:8765." + (serverStatus.isEmpty ? "" : "\n\n" + serverStatus)
+        case .sync: "Your scores, their originals and your collections are kept on your server, so they're backed up and the same on every device. Deleting a score deletes it everywhere."
         case .tuning: settings.value.tuning.system.summary
         case .intonation: "A note within the first range counts as in tune and within the second as close. 5–10 cents is a demanding standard."
         default: nil
@@ -79,6 +99,23 @@ final class SettingsViewController: UITableViewController {
             content = .cell()
             content.text = testing ? "Testing…" : "Test Connection"
             content.textProperties.color = Theme.accent
+            cell.selectionStyle = .default
+        case (.sync, 0):
+            content.text = "Keep library on the server"
+            let toggle = UISwitch()
+            toggle.isOn = s.syncLibrary
+            toggle.addAction(UIAction { [weak self, weak toggle] _ in self?.settings.update { $0.syncLibrary = toggle?.isOn ?? true } }, for: .valueChanged)
+            cell.accessoryView = toggle
+        case (.sync, 1):
+            content = .subtitleCell()
+            content.text = "Status"
+            content.secondaryText = syncStatusText
+            content.secondaryTextProperties.color = { if case .failed = sync.status.value { .systemRed } else { .secondaryLabel } }()
+            content.secondaryTextProperties.numberOfLines = 0
+        case (.sync, 2):
+            content = .cell()
+            content.text = "Sync Now"
+            content.textProperties.color = s.syncLibrary && settings.omrConfig != nil ? Theme.accent : .tertiaryLabel
             cell.selectionStyle = .default
         case (.tuning, 0):
             content.text = "Reference A"
@@ -145,6 +182,7 @@ final class SettingsViewController: UITableViewController {
         tableView.deselectRow(at: indexPath, animated: true)
         switch (Section(rawValue: indexPath.section)!, indexPath.row) {
         case (.server, 2): testConnection()
+        case (.sync, 2): sync.syncNow()
         case (.library, 0):
             if let score = sample() { try? library.save(score) }
             let a = UIAlertController(title: "Added", message: "“Étude in D” is in your library.", preferredStyle: .alert)

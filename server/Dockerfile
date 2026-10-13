@@ -39,7 +39,7 @@ ENV JAVA_TOOL_OPTIONS="-Djava.awt.headless=true -Xmx3g" \
 RUN useradd --create-home --uid 10001 omr && mkdir -p /data && chown omr /data
 USER omr
 WORKDIR /home/omr
-COPY --chown=omr omr_server.py .
+COPY --chown=omr omr_server.py library_store.py ./
 
 VOLUME /data
 EXPOSE 8765

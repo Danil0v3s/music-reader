@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Music Reader OMR server: wraps Audiveris behind a small HTTP API.
+"""Music Reader server: reads sheet music with Audiveris, and keeps the user's score library.
 
 The app uploads a PDF (or PNG/JPEG/TIFF scan), Audiveris transcribes it in the background, and the app
 polls the job and downloads MusicXML. Standard library only, so the Docker image needs nothing beyond
@@ -11,6 +11,16 @@ API
   GET    /jobs/<id>                    -> {"id", "status": queued|running|done|failed, "error", "movements", "elapsed"}
   GET    /jobs/<id>/musicxml?movement=N  -> the uncompressed MusicXML of movement N (default 0)
   DELETE /jobs/<id>                    -> 204
+
+Library (see library_store.py; writes carry "X-Modified: <unix seconds>")
+  GET    /library                         -> {"scores": [{id, modified, deleted, title, composer, original}], "collections": {modified}}
+  GET    /library/scores/<id>             -> the score's JSON
+  PUT    /library/scores/<id>             body = score JSON -> 204
+  DELETE /library/scores/<id>             -> 204 (leaves a tombstone)
+  GET    /library/scores/<id>/original    -> the imported PDF
+  PUT    /library/scores/<id>/original    body = PDF -> 204
+  GET    /library/collections             -> the collections JSON document
+  PUT    /library/collections             body = collections JSON -> 204
 
 Environment
   OMR_PORT        port to listen on (8765)
@@ -41,6 +51,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from xml.etree import ElementTree
 
+from library_store import LibraryStore, valid_id
+
 try:  # Pillow is optional: without it images go to Audiveris untouched.
     from PIL import Image, ImageOps
 except ImportError:  # pragma: no cover
@@ -54,6 +66,7 @@ TIMEOUT = int(os.environ.get("OMR_TIMEOUT", "900"))
 KEEP_HOURS = float(os.environ.get("OMR_KEEP_HOURS", "24"))
 FINGERINGS = os.environ.get("OMR_FINGERINGS", "0") == "1"
 MAX_UPLOAD = 60 * 1024 * 1024
+MAX_SCORE = 20 * 1024 * 1024
 ALLOWED = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
 
@@ -197,6 +210,7 @@ def audiveris_version() -> str:
 
 
 VERSION = "unknown"
+library: LibraryStore | None = None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -222,6 +236,92 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "missing or wrong token"})
         return False
 
+    def read_body(self, limit: int) -> bytes | None:
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > limit:
+            self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE if length else HTTPStatus.BAD_REQUEST,
+                           {"error": f"body must be between 1 byte and {limit // 1024 // 1024} MB"})
+            return None
+        chunks, remaining = [], length
+        while remaining:
+            chunk = self.rfile.read(min(remaining, 1 << 16))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+
+    def modified_header(self) -> float | None:
+        try:
+            return float(self.headers.get("X-Modified", ""))
+        except ValueError:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "X-Modified (unix seconds) is required"})
+            return None
+
+    def send_bytes(self, data: bytes | None, content_type: str) -> None:
+        if data is None:
+            self.send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
+            return
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def library_route(self, method: str, parts: list[str]) -> bool:
+        """Handles /library…; False if the path isn't a library path."""
+        if not parts or parts[0] != "library":
+            return False
+        assert library is not None
+        rest = parts[1:]
+        if rest and rest[0] == "scores" and len(rest) >= 2 and not valid_id(rest[1]):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "score ids are UUIDs"})
+            return True
+        try:
+            if method == "GET" and rest == []:
+                self.send_json(HTTPStatus.OK, library.listing())
+            elif method == "GET" and rest == ["collections"]:
+                self.send_bytes(library.get_collections(), "application/json")
+            elif method == "PUT" and rest == ["collections"]:
+                modified = self.modified_header()
+                body = self.read_body(MAX_SCORE) if modified is not None else None
+                if body is not None:
+                    library.put_collections(body, modified)
+                    self.send_json(HTTPStatus.NO_CONTENT, None)
+            elif len(rest) == 2 and rest[0] == "scores":
+                if method == "GET":
+                    self.send_bytes(library.get_score(rest[1]), "application/json")
+                elif method == "PUT":
+                    modified = self.modified_header()
+                    body = self.read_body(MAX_SCORE) if modified is not None else None
+                    if body is not None:
+                        library.put_score(rest[1], body, modified)
+                        self.send_json(HTTPStatus.NO_CONTENT, None)
+                elif method == "DELETE":
+                    modified = self.modified_header()
+                    if modified is not None:
+                        library.delete_score(rest[1], modified)
+                        self.send_json(HTTPStatus.NO_CONTENT, None)
+                else:
+                    self.send_json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"})
+            elif len(rest) == 3 and rest[0] == "scores" and rest[2] == "original":
+                if method == "GET":
+                    self.send_bytes(library.get_original(rest[1]), "application/pdf")
+                elif method == "PUT":
+                    body = self.read_body(MAX_UPLOAD)
+                    if body is not None:
+                        if library.put_original(rest[1], body):
+                            self.send_json(HTTPStatus.NO_CONTENT, None)
+                        else:
+                            self.send_json(HTTPStatus.NOT_FOUND, {"error": "upload the score first"})
+                else:
+                    self.send_json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"})
+            else:
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
+        except (ValueError, json.JSONDecodeError) as e:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(e)[:300]})
+        return True
+
     def job_from_path(self, parts: list[str]) -> Job | None:
         with jobs_lock:
             job = jobs.get(parts[1]) if len(parts) > 1 else None
@@ -234,9 +334,11 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in url.path.split("/") if p]
         if parts == ["health"]:
             self.send_json(HTTPStatus.OK, {"status": "ok", "engine": "audiveris", "version": VERSION,
-                                           "auth": TOKEN is not None, "queued": work.qsize()})
+                                           "auth": TOKEN is not None, "queued": work.qsize(), "library": True})
             return
         if not self.authorised():
+            return
+        if self.library_route("GET", parts):
             return
         if len(parts) == 2 and parts[0] == "jobs":
             if job := self.job_from_path(parts):
@@ -293,8 +395,19 @@ class Handler(BaseHTTPRequestHandler):
         work.put(job)
         self.send_json(HTTPStatus.ACCEPTED, job.to_json())
 
+    def do_PUT(self) -> None:
+        parts = [p for p in urlparse(self.path).path.split("/") if p]
+        if not self.authorised():
+            return
+        if not self.library_route("PUT", parts):
+            self.send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
+
     def do_DELETE(self) -> None:
         parts = [p for p in urlparse(self.path).path.split("/") if p]
+        if parts[:1] == ["library"]:
+            if self.authorised():
+                self.library_route("DELETE", parts)
+            return
         if len(parts) != 2 or parts[0] != "jobs":
             self.send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
@@ -312,8 +425,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    global VERSION
+    global VERSION, library
     (DATA / "jobs").mkdir(parents=True, exist_ok=True)
+    library = LibraryStore(DATA / "library")
     VERSION = audiveris_version()
     threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=janitor, daemon=True).start()

@@ -8,6 +8,8 @@ import VisionKit
 @MainActor
 protocol Coordinator: AnyObject {
     func openScore(_ id: UUID)
+    func openCollection(_ id: UUID)
+    func closeCollection(_ id: UUID)
     func editScore(_ id: UUID)
     func newScore()
     func practice(_ id: UUID, startMeasure: Int)
@@ -65,6 +67,16 @@ final class AppCoordinator: NSObject, Coordinator {
         root.selectedIndex = 0
         guard let vc = factory.score(id) else { return }
         libraryNav.pushViewController(vc, animated: true)
+    }
+
+    func openCollection(_ id: UUID) {
+        libraryNav.pushViewController(factory.collection(id), animated: true)
+    }
+
+    /// The collection was deleted (here or by sync): leave its screen.
+    func closeCollection(_ id: UUID) {
+        guard let i = libraryNav.viewControllers.firstIndex(where: { $0 is CollectionViewController }) else { return }
+        libraryNav.setViewControllers(Array(libraryNav.viewControllers.prefix(i)), animated: true)
     }
 
     func editScore(_ id: UUID) {

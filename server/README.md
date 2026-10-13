@@ -1,8 +1,15 @@
-# OMR server
+# Music Reader server
 
-Turns PDFs or scans of sheet music into MusicXML for the app, using [Audiveris](https://github.com/Audiveris/audiveris)
-(open-source optical music recognition). `omr_server.py` is a standard-library Python wrapper. It queues
-uploads, runs one Audiveris transcription at a time and serves the result.
+Your own server for the app. It does two jobs:
+
+- **Recognition.** It turns PDFs, scans and photos of sheet music into MusicXML using
+  [Audiveris](https://github.com/Audiveris/audiveris) (open-source optical music recognition). Uploads are
+  queued and run one at a time. Photos are converted to grayscale with the contrast stretched first, which
+  recognises far more reliably.
+- **Your library.** It stores scores, their original PDFs and your collections (`library_store.py`). Every
+  device syncs with it, so it's also your backup. The data lives in the `omr-data` volume under `/data/library`.
+
+`omr_server.py` uses only the Python standard library, plus Pillow for preparing photos.
 
 ## Run
 
@@ -36,13 +43,26 @@ To require a token, set `OMR_TOKEN` (shell or `server/.env`) and enter the same 
 | `GET /jobs/<id>/musicxml?movement=0` | Uncompressed MusicXML |
 | `DELETE /jobs/<id>` | `204` |
 
+Library (writes carry `X-Modified: <unix seconds>`, the client's modification time):
+
+| | |
+|---|---|
+| `GET /library` | `{"scores":[{"id","modified","deleted","title","composer","original"}],"collections":{"modified"}}` |
+| `GET` / `PUT` / `DELETE /library/scores/<uuid>` | The score as the app's JSON. `DELETE` leaves a tombstone so other devices learn about it |
+| `GET` / `PUT /library/scores/<uuid>/original` | The imported PDF |
+| `GET` / `PUT /library/collections` | The collections document |
+
+Back up the library by copying the volume, e.g.
+`docker run --rm -v omr-data:/data -v "$PWD":/backup ubuntu tar czf /backup/music-reader-library.tgz /data/library`.
+
 ## Test
 
 ```
 python3 -m unittest server/test_omr_server.py
 ```
 
-The test runs the real HTTP server against a fake Audiveris launcher, so it needs neither Docker nor Java.
+The tests run the real HTTP server against a fake Audiveris launcher, so they need neither Docker nor Java.
+They cover the recognition API, the library endpoints, tombstones and photo preparation.
 
 ## Accuracy
 

@@ -10,11 +10,18 @@ final class ViewFactory {
     init(dependencies: AppDependencies) { self.d = dependencies }
 
     func library() -> LibraryViewController {
-        LibraryViewController(library: d.library, onOpen: { [weak self] in self?.coordinator?.openScore($0) },
+        LibraryViewController(library: d.library, sync: d.sync, onOpen: { [weak self] in self?.coordinator?.openScore($0) },
+                              onOpenCollection: { [weak self] in self?.coordinator?.openCollection($0) },
                               onImportFile: { [weak self] in self?.coordinator?.pickFileToImport() },
                               onImportPhoto: { [weak self] in self?.coordinator?.pickPhotoToImport() },
                               onScan: { [weak self] in self?.coordinator?.scanWithCamera() },
                               onNew: { [weak self] in self?.coordinator?.newScore() })
+    }
+
+    func collection(_ id: UUID) -> CollectionViewController {
+        CollectionViewController(collectionId: id, library: d.library,
+                                 onOpen: { [weak self] in self?.coordinator?.openScore($0) },
+                                 onDeleted: { [weak self] in self?.coordinator?.closeCollection(id) })
     }
 
     func score(_ id: UUID) -> ScoreViewController? {
@@ -50,6 +57,6 @@ final class ViewFactory {
     func tuner() -> TunerViewController { TunerViewController(settings: d.settings) }
 
     func settings() -> SettingsViewController {
-        SettingsViewController(settings: d.settings, library: d.library, sample: { [weak self] in self?.d.sampleScore() })
+        SettingsViewController(settings: d.settings, library: d.library, sync: d.sync, sample: { [weak self] in self?.d.sampleScore() })
     }
 }

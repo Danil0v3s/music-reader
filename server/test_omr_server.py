@@ -115,5 +115,50 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(omr_server.safe_filename("../../etc/pass wd.PDF"), "pass_wd.pdf")
 
 
+class LibraryTests(unittest.TestCase):
+    ID = "6F1C2A1E-0B6A-4C0E-9C7B-6A7A3E8D2F11"
+
+    def listing(self):
+        status, body = call("GET", "/library")
+        self.assertEqual(status, 200)
+        return json.loads(body)
+
+    def entry(self, score_id):
+        return next((s for s in self.listing()["scores"] if s["id"] == score_id), None)
+
+    def test_score_round_trip_and_tombstone(self):
+        score = json.dumps({"id": self.ID, "title": "Early one morning", "composer": "Trad.", "parts": []}).encode()
+        self.assertEqual(call("PUT", f"/library/scores/{self.ID}", score, {"X-Modified": "1000.5"})[0], 204)
+        entry = self.entry(self.ID)
+        self.assertEqual((entry["title"], entry["modified"], entry["deleted"]), ("Early one morning", 1000.5, False))
+        status, body = call("GET", f"/library/scores/{self.ID}")
+        self.assertEqual((status, json.loads(body)["composer"]), (200, "Trad."))
+
+        self.assertEqual(call("PUT", f"/library/scores/{self.ID}/original", b"%PDF-1.4 x")[0], 204)
+        self.assertEqual(self.entry(self.ID)["original"], "pdf")
+        self.assertEqual(call("GET", f"/library/scores/{self.ID}/original")[1], b"%PDF-1.4 x")
+
+        self.assertEqual(call("DELETE", f"/library/scores/{self.ID}", headers={"X-Modified": "2000"})[0], 204)
+        entry = self.entry(self.ID)
+        self.assertTrue(entry["deleted"])
+        self.assertEqual(entry["modified"], 2000)
+        self.assertEqual(call("GET", f"/library/scores/{self.ID}")[0], 404)
+        self.assertEqual(call("GET", f"/library/scores/{self.ID}/original")[0], 404)
+
+    def test_collections_document(self):
+        doc = json.dumps({"collections": [{"name": "Book 1"}]}).encode()
+        self.assertEqual(call("PUT", "/library/collections", doc, {"X-Modified": "3000"})[0], 204)
+        self.assertEqual(self.listing()["collections"]["modified"], 3000)
+        self.assertEqual(json.loads(call("GET", "/library/collections")[1])["collections"][0]["name"], "Book 1")
+
+    def test_rejects_bad_input(self):
+        self.assertEqual(call("PUT", "/library/scores/not-a-uuid", b"{}", {"X-Modified": "1"})[0], 400)
+        self.assertEqual(call("PUT", f"/library/scores/{self.ID}", b"[1,2]", {"X-Modified": "1"})[0], 400)
+        self.assertEqual(call("PUT", f"/library/scores/{self.ID}", b"{}")[0], 400, "X-Modified is required")
+        other = "11111111-2222-3333-4444-555555555555"
+        self.assertEqual(call("PUT", f"/library/scores/{other}/original", b"%PDF")[0], 404, "score first")
+        self.assertEqual(call("GET", "/library", token=None)[0], 401)
+
+
 if __name__ == "__main__":
     unittest.main()

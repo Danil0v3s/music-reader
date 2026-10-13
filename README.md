@@ -6,8 +6,9 @@ note, hear it at any tempo, and check your intonation against it with the microp
 - `ios/`: the iOS app. Programmatic UIKit (Coordinator + ViewFactory + AppDependencies), XcodeGen
   (`project.yml`), and a local Swift package `ScoreKit` holding everything that isn't UI. Same structure as
   `tesla-mate-viewer`.
-- `server/`: the OMR (optical music recognition) server, [Audiveris](https://github.com/Audiveris/audiveris)
-  behind a small HTTP API, packaged as a `linux/amd64` Docker image. See [server/README.md](server/README.md).
+- `server/`: your own server, packaged as a `linux/amd64` Docker image. It reads sheet music with
+  [Audiveris](https://github.com/Audiveris/audiveris) (optical music recognition) and keeps your library:
+  scores, their original PDFs and collections, synced across devices. See [server/README.md](server/README.md).
 - `shared/`: files both apps bundle: the Bravura music font (SMuFL, SIL OFL) and sample scores.
 - `android/`: not started yet. ScoreKit is UI-free and dependency-free so it can be ported module by module,
   the way `tesla-mate-viewer`'s Android `:core:*` modules mirror its Swift package.
@@ -24,7 +25,7 @@ Editor (tap the staff) ───────────────────
 
 ### ScoreKit (ios/ScoreKit)
 
-The music theory is explicit and tested (`swift test`, 39 tests):
+The music theory is explicit and tested (`swift test`, 51 tests):
 
 - **Theory**: spelled pitches (C♯ ≠ D♭: different staff position, accidental and, outside equal temperament,
   frequency), intervals named by quality and number, key signatures with modes and scale degrees, clefs
@@ -45,11 +46,14 @@ The music theory is explicit and tested (`swift test`, 39 tests):
   and dynamics shaping length and loudness), a bowed-string synth, and metronome clicks with a count-in.
 - **Intonation**: YIN pitch detection tuned for the cello's range, and per-note assessment (median cents,
   steadiness, wrong-note detection, an overall sharp or flat tendency).
-- **OMR client** for the server, and **storage** (JSON per score, plus the original PDF for comparison).
+- **OMR client** for the server, **storage** (JSON per score, plus the original PDF for comparison),
+  **collections**, and **library sync** with the server.
 
 ### The app (ios/MusicReader)
 
-- **Library**: import a PDF, image or MusicXML; scan paper with the camera; write a new score.
+- **Library**: scan paper with the camera, choose a photo (framed with a crop step first), import a PDF, image or
+  MusicXML, or write a new score. Organise scores into **collections** (a score can be in several; drag to
+  reorder). Pull down to sync.
 - **Score**: notation that follows playback; practice tempo (50–125 %); metronome; tap a note to see its
   scale degree, frequency, interval from the previous note, string and fingering; view the original PDF;
   export MusicXML or PDF.
@@ -60,7 +64,17 @@ The music theory is explicit and tested (`swift test`, 39 tests):
 - **Practice**: *Follow me* waits for each note to be played in tune; *With metronome* judges each note in time.
   Notes turn green, amber or red, and a summary says what to work on.
 - **Tuner**: strings judged against pure fifths, with a reference drone per string.
-- **Settings**: recognition server address and token, reference A, tuning system, intonation tolerance.
+- **Settings**: server address and token, library sync (on by default when a server is set), reference A,
+  tuning system, intonation tolerance.
+
+### Library sync
+
+With a server configured, the library lives on it, and every device keeps a full local copy. It syncs at
+launch, when the app comes back to the foreground, a few seconds after any edit, and on pull-to-refresh.
+Each score syncs on its own and the newest change wins, compared to the millisecond. A deletion is a change
+too: each side keeps a tombstone, so a score deleted on one device is removed from the others rather than
+uploaded again. Collections are one small document, synced the same way (last writer wins). The planner
+is `SyncPlanner` in ScoreKit.
 
 ## Build and run
 

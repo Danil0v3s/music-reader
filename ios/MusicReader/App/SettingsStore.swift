@@ -12,6 +12,23 @@ struct AppSettings: Codable, Equatable {
     var countIn = true
     /// Staff space in points: how big the music is drawn.
     var staffSpace: Double = 8
+    /// Keep the library (scores, originals, collections) on the server and in step across devices.
+    var syncLibrary = true
+
+    init() {}
+
+    // Settings saved before a field existed still decode, taking that field's default.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = AppSettings()
+        serverAddress = try c.decodeIfPresent(String.self, forKey: .serverAddress) ?? d.serverAddress
+        tuning = try c.decodeIfPresent(Tuning.self, forKey: .tuning) ?? d.tuning
+        thresholds = try c.decodeIfPresent(IntonationAssessment.Thresholds.self, forKey: .thresholds) ?? d.thresholds
+        metronome = try c.decodeIfPresent(Bool.self, forKey: .metronome) ?? d.metronome
+        countIn = try c.decodeIfPresent(Bool.self, forKey: .countIn) ?? d.countIn
+        staffSpace = try c.decodeIfPresent(Double.self, forKey: .staffSpace) ?? d.staffSpace
+        syncLibrary = try c.decodeIfPresent(Bool.self, forKey: .syncLibrary) ?? d.syncLibrary
+    }
 }
 
 @MainActor

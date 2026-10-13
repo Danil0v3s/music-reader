@@ -14,6 +14,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
     private var coordinator: AppCoordinator?
+    private var dependencies: AppDependencies?
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
@@ -25,8 +26,14 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.makeKeyAndVisible()
         self.window = window
         self.coordinator = coordinator
+        self.dependencies = dependencies
         coordinator.start()
         if let url = connectionOptions.urlContexts.first?.url { coordinator.importFile(url) }
+    }
+
+    /// Coming back to the app picks up changes made on other devices.
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        dependencies?.sync.syncNow()
     }
 
     func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
