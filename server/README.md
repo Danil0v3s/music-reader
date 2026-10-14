@@ -67,9 +67,14 @@ Sign-in attempts, new accounts and share-code lookups are rate-limited per addre
 
 ## Backups
 
-`server/backup.sh` (run nightly from cron on the host) writes a consistent snapshot of the database and the
-originals, keeps 14 days, and copies them elsewhere with `BACKUP_REMOTE=user@host:/path`. The script's header
-has the restore command; a restore into a fresh volume has been tried.
+`server/backup.sh` writes a consistent snapshot of the database and the originals, keeps 14 days, and copies
+them elsewhere with `BACKUP_REMOTE=user@host:/path`. The script's header has the restore command; a restore
+into a fresh volume has been tried. `server/healthcheck.sh` notifies you once when the server stops answering
+and once when it's back.
+
+On a Mac host, `server/macos/install-launchd.sh` schedules both (backup at 03:30, health check every 5
+minutes; logs in `~/music-reader-backups/`); `install-launchd.sh uninstall` removes them. On Linux, add the
+same two scripts to cron.
 
 ## Moving a library from before accounts
 
