@@ -6,6 +6,12 @@ Your own server for the app. It does two jobs:
   [Audiveris](https://github.com/Audiveris/audiveris) (open-source optical music recognition). Uploads are
   queued and run one at a time. Photos are converted to grayscale with the contrast stretched first, which
   recognises far more reliably.
+- **Small images.** Audiveris needs the staff lines a few pixels apart: it reads best at about 20 px from
+  line to line (a 300 dpi scan) and gives up below about 10, which is what a screenshot of a page has. The
+  server measures the spacing on each image and enlarges it to about 20 px. Because Audiveris is touchy
+  about exact sizes, an enlarged image is read twice (at that size and 25% larger), and the server keeps the
+  reading with more bars that add up to the time signature. A reading that finds nothing is retried at twice
+  the size. The job status shows what happened under `prepared`.
 - **Your library.** It stores scores, their original PDFs and your collections (`library_store.py`). Every
   device syncs with it, so it's also your backup. The data lives in the `omr-data` volume under `/data/library`.
 

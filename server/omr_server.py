@@ -8,7 +8,8 @@ Python and the Audiveris package.
 API
   GET    /health                       -> {"status": "ok", "engine": "audiveris", "version": "..."}
   POST   /jobs                         body = the file bytes; header X-Filename: name.pdf  -> 202 {"id": ...}
-  GET    /jobs/<id>                    -> {"id", "status": queued|running|done|failed, "error", "movements", "elapsed"}
+  GET    /jobs/<id>                    -> {"id", "status": queued|running|done|failed, "error", "movements", "elapsed",
+                                             "prepared": {"interline", "scale", "readings"} for images}
   GET    /jobs/<id>/musicxml?movement=N  -> the uncompressed MusicXML of movement N (default 0)
   DELETE /jobs/<id>                    -> 204
 
@@ -45,6 +46,7 @@ import threading
 import time
 import uuid
 import zipfile
+from fractions import Fraction
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -80,6 +82,8 @@ class Job:
         self.created = time.time()
         self.started: float | None = None
         self.finished: float | None = None
+        # How an image was prepared: the measured staff spacing and the scale applied.
+        self.prepared: dict = {}
 
     @property
     def dir(self) -> Path:
@@ -94,6 +98,7 @@ class Job:
             "error": self.error,
             "movements": len(self.movements),
             "elapsed": round(end - (self.started or end), 1),
+            **({"prepared": self.prepared} if self.prepared else {}),
         }
 
 
@@ -131,27 +136,70 @@ def extract_musicxml(path: Path) -> bytes:
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
 
-MIN_WIDTH = 1600   # pixels across the page, roughly 150 dpi for A4
+# Audiveris measures everything in "interlines", the distance from one staff line to the next. It reads best
+# at about 20 px (a 300 dpi scan) and fails outright below roughly 10 ("Error in export"): an 800 px wide
+# screenshot of a page has about 7. Images are enlarged to reach the target, measured on the image itself.
+TARGET_INTERLINE = 20
+MIN_INTERLINE = 15        # below this, enlarge
+MAX_SCALE = 4
+MIN_WIDTH = 1600          # when no staff can be measured: pixels across the page, roughly 150 dpi for A4
 
 
-def prepare_image(source: Path) -> Path:
+def estimate_interline(gray: "Image.Image") -> float | None:
+    """The staff line spacing in pixels, or None when there's no clear staff. Like Audiveris's own scale
+    check: down sampled columns, every thin dark run followed by a light run and another dark run is a
+    candidate line + space; the staff lines make the most common combined length stand out."""
+    w, h = gray.size
+    if w < 20 or h < 20:
+        return None
+    px = gray.tobytes()
+    counts: dict[int, int] = {}
+    for x in range(w // 20, w - w // 20, max(1, w // 150)):
+        runs: list[tuple[bool, int]] = []          # (dark, length) down the column
+        for y in range(h):
+            dark = px[y * w + x] < 128
+            if runs and runs[-1][0] == dark:
+                runs[-1] = (dark, runs[-1][1] + 1)
+            else:
+                runs.append((dark, 1))
+        for (d1, black), (_, white), (d3, _) in zip(runs, runs[1:], runs[2:]):
+            if d1 and d3 and black <= max(3, h // 400) and 2 <= white <= 100:
+                counts[black + white] = counts.get(black + white, 0) + 1
+    if not counts:
+        return None
+    # Lines are drawn a pixel thicker or thinner here and there, so a spacing and its neighbours count together.
+    best = max(counts, key=lambda n: counts.get(n - 1, 0) + 2 * counts[n] + counts.get(n + 1, 0))
+    support = counts.get(best - 1, 0) + counts[best] + counts.get(best + 1, 0)
+    if support < 20:
+        return None
+    return sum(n * counts.get(n, 0) for n in (best - 1, best, best + 1)) / support
+
+
+def prepare_image(source: Path, boost: float = 1) -> tuple[Path, dict]:
     """Photos of sheet music read much better as grayscale with the contrast stretched: colour casts,
     shadows and a grey page confuse binarisation. On a phone photo this took a piece from 15/16 bars
     right with 20 phantom marks to 16/16 with 6. Hard thresholding here is worse: Audiveris binarises
     adaptively and better than a global cut.
 
-    Small images are enlarged: Audiveris needs staff lines a few pixels apart and gives up ("Error in
-    export") on, say, an 800 px wide screenshot of a page, which reads cleanly at twice the size."""
+    Small images are enlarged so the staff spacing reaches TARGET_INTERLINE; `boost` enlarges further
+    (a retry after a failed read). Returns the prepared file and what was done to it."""
     if Image is None or source.suffix.lower() not in IMAGE_SUFFIXES:
-        return source
+        return source, {}
     with Image.open(source) as im:
         gray = ImageOps.autocontrast(ImageOps.exif_transpose(im).convert("L"), cutoff=1)
-        factor = min(4, -(-MIN_WIDTH // gray.width))
-        if factor > 1:
-            gray = gray.resize((gray.width * factor, gray.height * factor), Image.Resampling.LANCZOS)
-        prepared = source.with_name(source.stem + ".prepared.png")
-        gray.save(prepared)
-    return prepared
+    interline = estimate_interline(gray)
+    if interline is not None:
+        scale = TARGET_INTERLINE / interline if interline < MIN_INTERLINE else 1
+    else:
+        scale = MIN_WIDTH / gray.width if gray.width < MIN_WIDTH else 1
+    scale = min(MAX_SCALE, scale * boost)
+    if scale > 1.05:
+        gray = gray.resize((round(gray.width * scale), round(gray.height * scale)), Image.Resampling.LANCZOS)
+    else:
+        scale = 1
+    prepared = source.with_name(source.stem + ".prepared.png")
+    gray.save(prepared)
+    return prepared, {"interline": round(interline, 1) if interline else None, "scale": round(scale, 2)}
 
 
 def movement_key(path: Path) -> tuple[int, str]:
@@ -160,21 +208,84 @@ def movement_key(path: Path) -> tuple[int, str]:
     return (int(m.group(1)) if m else 0, path.name)
 
 
-def run_audiveris(job: Job) -> None:
-    out = job.dir / "out"
+def reading_quality(movements: list[Path]) -> tuple[int, int, int]:
+    """How good a reading looks, to choose between readings: bars that add up exactly to their time
+    signature first (a missed note leaves a bar short, a speck read as a note overfills it), then bars
+    found, then notes. When no time signature was read (a missed C sign), the most common bar length
+    stands in for it."""
+    complete = bars = notes = 0
+    for path in movements:
+        try:
+            root = ElementTree.fromstring(extract_musicxml(path))
+        except (ElementTree.ParseError, zipfile.BadZipFile, KeyError, StopIteration):
+            continue
+        part = root.find("part")
+        if part is None:
+            continue
+        divisions, expected = 1, None
+        unchecked: list[Fraction] = []
+        for measure in part.findall("measure"):
+            bars += 1
+            attrs = measure.find("attributes")
+            if attrs is not None:
+                divisions = int(attrs.findtext("divisions") or divisions)
+                beats, beat_type = attrs.findtext("time/beats"), attrs.findtext("time/beat-type")
+                if beats and beat_type:
+                    expected = Fraction(int(beats), int(beat_type))
+            filled = Fraction(0)
+            for note in measure.findall("note"):
+                notes += 1
+                voice = note.findtext("voice") or "1"
+                if voice == "1" and note.find("chord") is None and note.find("grace") is None:
+                    filled += Fraction(int(note.findtext("duration") or 0), 4 * divisions)
+            if expected is None:
+                unchecked.append(filled)
+            elif filled == expected:
+                complete += 1
+        if unchecked:
+            usual = max(set(unchecked), key=unchecked.count)
+            complete += sum(1 for f in unchecked if f == usual and f > 0)
+    return complete, bars, notes
+
+
+def read_once(job: Job, boost: float, attempt: int) -> tuple[list[Path], dict, int]:
+    source, prepared = prepare_image(job.dir / job.filename, boost)
+    out = job.dir / f"out{attempt}"
     out.mkdir(parents=True, exist_ok=True)
-    source = prepare_image(job.dir / job.filename)
     cmd = [AUDIVERIS, "-batch", "-export", "-output", str(out)]
     if FINGERINGS:
         cmd += ["-constant", "org.audiveris.omr.sheet.ProcessingSwitches.fingerings=true"]
     cmd += ["--", str(source)]
-    log_path = job.dir / "audiveris.log"
-    with open(log_path, "wb") as log:
+    with open(job.dir / "audiveris.log", "wb") as log:
         proc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, timeout=TIMEOUT, check=False)
     found = sorted([p for p in out.rglob("*") if p.suffix.lower() in (".mxl", ".xml") and p.is_file()], key=movement_key)
+    return found, prepared, proc.returncode
+
+
+# Readings of an enlarged image, as boosts over the measured scale. Audiveris is touchy about exact sizes:
+# a page that reads 12/12 bars at 2x, 2.5x and 3x read 2 bars at 2.43x. So an enlarged image is read at two
+# sizes and the better reading wins (see reading_quality); a failed reading is tried again at twice the size.
+SECOND_READING = 1.25
+FAILED_RETRY = 2
+
+
+def run_audiveris(job: Job) -> None:
+    found, prepared, code = read_once(job, 1, 0)
+    readings = [(found, prepared)]
+    if prepared and prepared["scale"] > 1 and prepared["scale"] < MAX_SCALE:
+        readings.append(read_once(job, SECOND_READING, 1)[:2])
+    if prepared and not any(f for f, _ in readings) and prepared["scale"] * FAILED_RETRY <= MAX_SCALE * 1.001:
+        found, retry, code = read_once(job, FAILED_RETRY, len(readings))
+        readings.append((found, {**retry, "retried": True}))
+    sizes = [reading_quality(f) if f else (-1, -1, -1) for f, _ in readings]
+    best = max(range(len(readings)), key=lambda i: (sizes[i], -i))
+    found, job.prepared = readings[best]
+    if len(readings) > 1:
+        job.prepared = {**job.prepared, "readings": [{"scale": p.get("scale"), "complete": c, "bars": b, "notes": n}
+                                                     for (_, p), (c, b, n) in zip(readings, sizes)]}
     if not found:
-        tail = log_path.read_text(errors="replace").strip().splitlines()[-8:]
-        reason = "no music was recognised" if proc.returncode == 0 else f"Audiveris exited with code {proc.returncode}"
+        tail = (job.dir / "audiveris.log").read_text(errors="replace").strip().splitlines()[-8:]
+        reason = "no music was recognised" if code == 0 else f"Audiveris exited with code {code}"
         raise RuntimeError(reason + (": " + " | ".join(tail) if tail else ""))
     job.movements = found
 
