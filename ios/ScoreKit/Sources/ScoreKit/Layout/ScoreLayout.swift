@@ -559,9 +559,11 @@ private struct Builder {
 
     // MARK: Notes
 
+    /// Stems go away from the middle line, decided by the note furthest from it; a note on the middle line
+    /// (or a group balanced around it) takes a down stem, as engravers do.
     func stemUp(_ steps: [Int]) -> Bool {
         guard let hi = steps.max(), let lo = steps.min() else { return true }
-        return (hi - 4) <= (4 - lo) ? true : false
+        return (hi - 4) < (4 - lo)
     }
 
     func hasSecond(_ pitches: [Pitch]) -> Bool {
