@@ -131,15 +131,24 @@ def extract_musicxml(path: Path) -> bytes:
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
 
+MIN_WIDTH = 1600   # pixels across the page, roughly 150 dpi for A4
+
+
 def prepare_image(source: Path) -> Path:
     """Photos of sheet music read much better as grayscale with the contrast stretched: colour casts,
     shadows and a grey page confuse binarisation. On a phone photo this took a piece from 15/16 bars
     right with 20 phantom marks to 16/16 with 6. Hard thresholding here is worse: Audiveris binarises
-    adaptively and better than a global cut."""
+    adaptively and better than a global cut.
+
+    Small images are enlarged: Audiveris needs staff lines a few pixels apart and gives up ("Error in
+    export") on, say, an 800 px wide screenshot of a page, which reads cleanly at twice the size."""
     if Image is None or source.suffix.lower() not in IMAGE_SUFFIXES:
         return source
     with Image.open(source) as im:
         gray = ImageOps.autocontrast(ImageOps.exif_transpose(im).convert("L"), cutoff=1)
+        factor = min(4, -(-MIN_WIDTH // gray.width))
+        if factor > 1:
+            gray = gray.resize((gray.width * factor, gray.height * factor), Image.Resampling.LANCZOS)
         prepared = source.with_name(source.stem + ".prepared.png")
         gray.save(prepared)
     return prepared

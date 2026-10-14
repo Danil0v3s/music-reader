@@ -107,6 +107,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(prepared.suffix, ".png")
         with Image.open(prepared) as im:
             self.assertEqual(im.mode, "L")
+            self.assertEqual(im.size, (160, 80), "small images are enlarged (at most 4x)")
         pdf = TMP / "page.pdf"
         pdf.write_bytes(b"%PDF")
         self.assertEqual(omr_server.prepare_image(pdf), pdf, "PDFs pass through")
