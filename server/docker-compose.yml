@@ -1,5 +1,5 @@
 # docker compose -f server/docker-compose.yml up -d --build
-# Set OMR_TOKEN (in a .env next to this file, or the shell) to require a token from the app.
+# Settings go in a .env next to this file (see .env.example): the public address, sign-in providers, email.
 services:
   omr:
     build: .
@@ -9,7 +9,14 @@ services:
     ports:
       - "8765:8765"
     environment:
-      OMR_TOKEN: ${OMR_TOKEN:-}
+      OMR_PUBLIC_URL: ${OMR_PUBLIC_URL:-http://localhost:8765}
+      OMR_APPLE_AUDIENCE: ${OMR_APPLE_AUDIENCE:-br.com.firstsoft.musicreader}
+      OMR_GOOGLE_CLIENT_IDS: ${OMR_GOOGLE_CLIENT_IDS:-}
+      OMR_SMTP_HOST: ${OMR_SMTP_HOST:-}
+      OMR_SMTP_PORT: ${OMR_SMTP_PORT:-587}
+      OMR_SMTP_USER: ${OMR_SMTP_USER:-}
+      OMR_SMTP_PASSWORD: ${OMR_SMTP_PASSWORD:-}
+      OMR_MAIL_FROM: ${OMR_MAIL_FROM:-Music Reader <no-reply@localhost>}
       OMR_TIMEOUT: ${OMR_TIMEOUT:-900}
       OMR_FINGERINGS: ${OMR_FINGERINGS:-0}
     volumes:

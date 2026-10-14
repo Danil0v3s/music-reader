@@ -1,37 +1,31 @@
 #!/usr/bin/env python3
-"""Music Reader server: reads sheet music with Audiveris, and keeps the user's score library.
+"""Music Reader server: reads sheet music with Audiveris, and keeps each user's score library.
 
 The app uploads a PDF (or PNG/JPEG/TIFF scan), Audiveris transcribes it in the background, and the app
-polls the job and downloads MusicXML. Standard library only, so the Docker image needs nothing beyond
-Python and the Audiveris package.
+polls the job and downloads MusicXML. Standard library only (plus Pillow for preparing photos), so the
+Docker image needs nothing beyond Python and the Audiveris package.
 
-API
-  GET    /health                       -> {"status": "ok", "engine": "audiveris", "version": "..."}
-  POST   /jobs                         body = the file bytes; header X-Filename: name.pdf  -> 202 {"id": ...}
-  GET    /jobs/<id>                    -> {"id", "status": queued|running|done|failed, "error", "movements", "elapsed",
-                                             "prepared": {"interline", "scale", "readings"} for images}
-  GET    /jobs/<id>/musicxml?movement=N  -> the uncompressed MusicXML of movement N (default 0)
-  DELETE /jobs/<id>                    -> 204
-
-Library (see library_store.py; writes carry "X-Modified: <unix seconds>")
-  GET    /library                         -> {"scores": [{id, modified, deleted, title, composer, original}], "collections": {modified}}
-  GET    /library/scores/<id>             -> the score's JSON
-  PUT    /library/scores/<id>             body = score JSON -> 204
-  DELETE /library/scores/<id>             -> 204 (leaves a tombstone)
-  GET    /library/scores/<id>/original    -> the imported PDF
-  PUT    /library/scores/<id>/original    body = PDF -> 204
-  GET    /library/collections             -> the collections JSON document
-  PUT    /library/collections             body = collections JSON -> 204
+This file is recognition and the program's entry point; the HTTP API is api.py, accounts accounts.py,
+the libraries library_store.py, the database db.py. Every route except /health and signing in needs a
+session ("Authorization: Bearer <access token>"); see api.py for the routes.
 
 Environment
-  OMR_PORT        port to listen on (8765)
-  OMR_DATA        working directory for jobs (/data)
-  OMR_TOKEN       if set, every request except /health needs "Authorization: Bearer <token>"
-  AUDIVERIS_CMD   the Audiveris launcher (/opt/audiveris/bin/Audiveris)
-  OMR_TIMEOUT     seconds before a transcription is abandoned (900)
-  OMR_KEEP_HOURS  finished jobs are deleted after this many hours (24)
-  OMR_FINGERINGS  1 to also recognise printed fingering digits (0). Off by default: on photos it mistakes
-                  small marks (a down-bow) for fingers as often as it finds real ones.
+  OMR_PORT              port to listen on (8765)
+  OMR_DATA              data directory: database, originals, recognition jobs (/data)
+  OMR_PUBLIC_URL        the address people reach the server at, for links in emails (http://localhost:8765)
+  OMR_APPLE_AUDIENCE    Sign in with Apple: the app's bundle id (br.com.firstsoft.musicreader); empty disables
+  OMR_GOOGLE_CLIENT_IDS Google Sign-In: the app's OAuth client id(s), comma-separated; empty disables
+  OMR_SMTP_HOST/PORT/USER/PASSWORD, OMR_MAIL_FROM   sending account emails (see mailer.py; without, they're logged)
+  AUDIVERIS_CMD         the Audiveris launcher (/opt/audiveris/bin/Audiveris)
+  OMR_TIMEOUT           seconds before a transcription is abandoned (900)
+  OMR_KEEP_HOURS        finished jobs' files are deleted after this many hours (24)
+  OMR_FINGERINGS        1 to also recognise printed fingering digits (0). Off by default: on photos it mistakes
+                        small marks (a down-bow) for fingers as often as it finds real ones.
+
+Commands
+  python3 omr_server.py                                   run the server
+  python3 omr_server.py import-library <email> [folder]   move a library from before accounts (<data>/library)
+                                                          into the account that signs in with <email>
 """
 
 from __future__ import annotations
@@ -53,7 +47,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from xml.etree import ElementTree
 
-from library_store import LibraryStore, valid_id
+from db import Database
 
 try:  # Pillow is optional: without it images go to Audiveris untouched.
     from PIL import Image, ImageOps
@@ -62,7 +56,6 @@ except ImportError:  # pragma: no cover
 
 PORT = int(os.environ.get("OMR_PORT", "8765"))
 DATA = Path(os.environ.get("OMR_DATA", "/data"))
-TOKEN = os.environ.get("OMR_TOKEN") or None
 AUDIVERIS = os.environ.get("AUDIVERIS_CMD", "/opt/audiveris/bin/Audiveris")
 TIMEOUT = int(os.environ.get("OMR_TIMEOUT", "900"))
 KEEP_HOURS = float(os.environ.get("OMR_KEEP_HOURS", "24"))
@@ -73,9 +66,11 @@ ALLOWED = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
 
 class Job:
-    def __init__(self, job_id: str, filename: str):
+    def __init__(self, job_id: str, filename: str, user_id: str = "", device_id: str | None = None):
         self.id = job_id
         self.filename = filename
+        self.user_id = user_id
+        self.device_id = device_id
         self.status = "queued"
         self.error: str | None = None
         self.movements: list[Path] = []
@@ -105,6 +100,31 @@ class Job:
 jobs: dict[str, Job] = {}
 jobs_lock = threading.Lock()
 work: "queue.Queue[Job]" = queue.Queue()
+database: Database | None = None
+
+
+def count_pages(path: Path) -> int:
+    """Pages in an upload: 1 for an image; for a PDF, its page objects (good enough to count scans by page)."""
+    if path.suffix.lower() != ".pdf":
+        return 1
+    data = path.read_bytes()
+    return max(1, len(re.findall(rb"/Type\s*/Page(?![s\w])", data)))
+
+
+def log_job(job: Job, **fields) -> None:
+    """Keeps the scan log (db.scan_jobs) in step with a job: who scanned, from which device, how many pages."""
+    if database is None:
+        return
+    with database.tx() as c:
+        if fields.pop("create", False):
+            path = job.dir / job.filename
+            c.execute("""INSERT INTO scan_jobs (id, user_id, device_id, filename, kind, bytes, pages, status, created)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?)""",
+                      (job.id, job.user_id or None, job.device_id, job.filename, "pdf" if path.suffix.lower() == ".pdf" else "image",
+                       path.stat().st_size, count_pages(path), job.created))
+        else:
+            c.execute("UPDATE scan_jobs SET status = ?, error = ?, movements = ?, started = ?, finished = ? WHERE id = ?",
+                      (job.status, job.error, len(job.movements), job.started, job.finished, job.id))
 
 
 def safe_filename(name: str) -> str:
@@ -295,6 +315,7 @@ def worker() -> None:
         job = work.get()
         job.status = "running"
         job.started = time.time()
+        log_job(job)
         try:
             run_audiveris(job)
             job.status = "done"
@@ -304,12 +325,22 @@ def worker() -> None:
             job.status, job.error = "failed", str(e)[:1000]
         finally:
             job.finished = time.time()
+            log_job(job)
             work.task_done()
 
 
+accounts_service = None
+
+
 def janitor() -> None:
+    last_guest_sweep = 0.0
     while True:
         time.sleep(600)
+        if accounts_service is not None and time.time() - last_guest_sweep > 86400:
+            last_guest_sweep = time.time()
+            removed = accounts_service.delete_stale_guests()
+            if removed:
+                print(f"Deleted {removed} guest account(s) unused for a year.", flush=True)
         cutoff = time.time() - KEEP_HOURS * 3600
         with jobs_lock:
             stale = [j for j in jobs.values() if j.finished and j.finished < cutoff]
@@ -330,229 +361,43 @@ def audiveris_version() -> str:
 
 
 VERSION = "unknown"
-library: LibraryStore | None = None
 
 
-class Handler(BaseHTTPRequestHandler):
-    server_version = "MusicReaderOMR/1.0"
-
-    def log_message(self, fmt: str, *args) -> None:
-        print(f"{self.address_string()} {fmt % args}", flush=True)
-
-    def send_json(self, status: int, body: dict | None) -> None:
-        data = b"" if body is None else json.dumps(body).encode()
-        self.send_response(status)
-        if body is not None:
-            self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
-
-    def authorised(self) -> bool:
-        if TOKEN is None:
-            return True
-        if self.headers.get("Authorization", "") == f"Bearer {TOKEN}":
-            return True
-        self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "missing or wrong token"})
-        return False
-
-    def read_body(self, limit: int) -> bytes | None:
-        length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0 or length > limit:
-            self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE if length else HTTPStatus.BAD_REQUEST,
-                           {"error": f"body must be between 1 byte and {limit // 1024 // 1024} MB"})
-            return None
-        chunks, remaining = [], length
-        while remaining:
-            chunk = self.rfile.read(min(remaining, 1 << 16))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        return b"".join(chunks)
-
-    def modified_header(self) -> float | None:
-        try:
-            return float(self.headers.get("X-Modified", ""))
-        except ValueError:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "X-Modified (unix seconds) is required"})
-            return None
-
-    def send_bytes(self, data: bytes | None, content_type: str) -> None:
-        if data is None:
-            self.send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
-            return
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
-
-    def library_route(self, method: str, parts: list[str]) -> bool:
-        """Handles /library…; False if the path isn't a library path."""
-        if not parts or parts[0] != "library":
-            return False
-        assert library is not None
-        rest = parts[1:]
-        if rest and rest[0] == "scores" and len(rest) >= 2 and not valid_id(rest[1]):
-            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "score ids are UUIDs"})
-            return True
-        try:
-            if method == "GET" and rest == []:
-                self.send_json(HTTPStatus.OK, library.listing())
-            elif method == "GET" and rest == ["collections"]:
-                self.send_bytes(library.get_collections(), "application/json")
-            elif method == "PUT" and rest == ["collections"]:
-                modified = self.modified_header()
-                body = self.read_body(MAX_SCORE) if modified is not None else None
-                if body is not None:
-                    library.put_collections(body, modified)
-                    self.send_json(HTTPStatus.NO_CONTENT, None)
-            elif len(rest) == 2 and rest[0] == "scores":
-                if method == "GET":
-                    self.send_bytes(library.get_score(rest[1]), "application/json")
-                elif method == "PUT":
-                    modified = self.modified_header()
-                    body = self.read_body(MAX_SCORE) if modified is not None else None
-                    if body is not None:
-                        library.put_score(rest[1], body, modified)
-                        self.send_json(HTTPStatus.NO_CONTENT, None)
-                elif method == "DELETE":
-                    modified = self.modified_header()
-                    if modified is not None:
-                        library.delete_score(rest[1], modified)
-                        self.send_json(HTTPStatus.NO_CONTENT, None)
-                else:
-                    self.send_json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"})
-            elif len(rest) == 3 and rest[0] == "scores" and rest[2] == "original":
-                if method == "GET":
-                    self.send_bytes(library.get_original(rest[1]), "application/pdf")
-                elif method == "PUT":
-                    body = self.read_body(MAX_UPLOAD)
-                    if body is not None:
-                        if library.put_original(rest[1], body):
-                            self.send_json(HTTPStatus.NO_CONTENT, None)
-                        else:
-                            self.send_json(HTTPStatus.NOT_FOUND, {"error": "upload the score first"})
-                else:
-                    self.send_json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"})
-            else:
-                self.send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
-        except (ValueError, json.JSONDecodeError) as e:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(e)[:300]})
-        return True
-
-    def job_from_path(self, parts: list[str]) -> Job | None:
-        with jobs_lock:
-            job = jobs.get(parts[1]) if len(parts) > 1 else None
-        if job is None:
-            self.send_json(HTTPStatus.NOT_FOUND, {"error": "no such job"})
-        return job
-
-    def do_GET(self) -> None:
-        url = urlparse(self.path)
-        parts = [p for p in url.path.split("/") if p]
-        if parts == ["health"]:
-            self.send_json(HTTPStatus.OK, {"status": "ok", "engine": "audiveris", "version": VERSION,
-                                           "auth": TOKEN is not None, "queued": work.qsize(), "library": True})
-            return
-        if not self.authorised():
-            return
-        if self.library_route("GET", parts):
-            return
-        if len(parts) == 2 and parts[0] == "jobs":
-            if job := self.job_from_path(parts):
-                self.send_json(HTTPStatus.OK, job.to_json())
-            return
-        if len(parts) == 3 and parts[0] == "jobs" and parts[2] == "musicxml":
-            job = self.job_from_path(parts)
-            if job is None:
-                return
-            if job.status != "done":
-                self.send_json(HTTPStatus.CONFLICT, {"error": f"job is {job.status}"})
-                return
-            index = int(parse_qs(url.query).get("movement", ["0"])[0] or 0)
-            if not 0 <= index < len(job.movements):
-                self.send_json(HTTPStatus.NOT_FOUND, {"error": "no such movement"})
-                return
-            data = extract_musicxml(job.movements[index])
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "application/vnd.recordare.musicxml+xml")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-            return
-        self.send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
-
-    def do_POST(self) -> None:
-        parts = [p for p in urlparse(self.path).path.split("/") if p]
-        if parts != ["jobs"]:
-            self.send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
-            return
-        if not self.authorised():
-            return
-        length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0 or length > MAX_UPLOAD:
-            self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE if length else HTTPStatus.BAD_REQUEST,
-                           {"error": f"upload must be between 1 byte and {MAX_UPLOAD // 1024 // 1024} MB"})
-            return
-        filename = safe_filename(self.headers.get("X-Filename", "score.pdf"))
-        if Path(filename).suffix not in ALLOWED:
-            self.send_json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": f"send one of {sorted(ALLOWED)}"})
-            return
-        job = Job(uuid.uuid4().hex, filename)
-        job.dir.mkdir(parents=True, exist_ok=True)
-        with open(job.dir / filename, "wb") as f:
-            remaining = length
-            while remaining:
-                chunk = self.rfile.read(min(remaining, 1 << 16))
-                if not chunk:
-                    break
-                f.write(chunk)
-                remaining -= len(chunk)
-        with jobs_lock:
-            jobs[job.id] = job
-        work.put(job)
-        self.send_json(HTTPStatus.ACCEPTED, job.to_json())
-
-    def do_PUT(self) -> None:
-        parts = [p for p in urlparse(self.path).path.split("/") if p]
-        if not self.authorised():
-            return
-        if not self.library_route("PUT", parts):
-            self.send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
-
-    def do_DELETE(self) -> None:
-        parts = [p for p in urlparse(self.path).path.split("/") if p]
-        if parts[:1] == ["library"]:
-            if self.authorised():
-                self.library_route("DELETE", parts)
-            return
-        if len(parts) != 2 or parts[0] != "jobs":
-            self.send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
-            return
-        if not self.authorised():
-            return
-        with jobs_lock:
-            job = jobs.pop(parts[1], None)
-        if job is None:
-            self.send_json(HTTPStatus.NOT_FOUND, {"error": "no such job"})
-            return
-        # A running job finishes in the background; its files go when the worker is done with them.
-        if job.status != "running":
-            shutil.rmtree(job.dir, ignore_errors=True)
-        self.send_json(HTTPStatus.NO_CONTENT, None)
+def open_services(data: Path):
+    """The database, libraries and accounts over a data directory."""
+    import accounts as accounts_module
+    from library_store import LibraryStore
+    db = Database(data / "music-reader.sqlite3")
+    library = LibraryStore(db, data / "originals")
+    acc = accounts_module.Accounts(db, library, os.environ.get("OMR_PUBLIC_URL", f"http://localhost:{PORT}"))
+    return db, library, acc
 
 
 def main() -> None:
-    global VERSION, library
+    import sys
+    global VERSION, database, accounts_service
+    # Run as a script this module is __main__; api.py imports it by name and must get this same module
+    # (one job queue), not a second copy.
+    sys.modules.setdefault("omr_server", sys.modules[__name__])
+    if len(sys.argv) >= 3 and sys.argv[1] == "import-library":
+        _, library, acc = open_services(DATA)
+        email = sys.argv[2].strip().lower()
+        row = library.db.one("SELECT user_id FROM identities WHERE email = ? OR subject = ?", (email, email))
+        if row is None:
+            sys.exit(f"No account signs in with {email}. Sign in with it in the app first.")
+        folder = Path(sys.argv[3]) if len(sys.argv) > 3 else DATA / "library"
+        print(f"Imported {library.import_legacy(folder, row['user_id'])} scores into {email}'s library.")
+        return
+    import api
     (DATA / "jobs").mkdir(parents=True, exist_ok=True)
-    library = LibraryStore(DATA / "library")
+    database, library, acc = open_services(DATA)
+    accounts_service = acc
+    api.configure(database, library, acc)
     VERSION = audiveris_version()
     threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=janitor, daemon=True).start()
-    httpd = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"Music Reader OMR server on :{PORT} (Audiveris {VERSION}, auth {'on' if TOKEN else 'off'})", flush=True)
+    httpd = ThreadingHTTPServer(("0.0.0.0", PORT), api.Handler)
+    print(f"Music Reader server on :{PORT} (Audiveris {VERSION}; sign-in: {', '.join(api.providers())})", flush=True)
     httpd.serve_forever()
 
 

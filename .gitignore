@@ -13,3 +13,6 @@ __pycache__/
 # Swift Package Manager
 .build/
 .swiftpm/
+
+# Server secrets
+server/.env
