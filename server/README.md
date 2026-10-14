@@ -1,74 +1,99 @@
 # Music Reader server
 
-Your own server for the app. It does two jobs:
+The app's server. It hosts many people, each with a private library:
 
+- **Accounts.** Sign in with Apple, Google, or email and password, or use the app as a guest (an anonymous
+  account tied to the device, which keeps everything when it later signs up). Sessions are short-lived access
+  tokens renewed with refresh tokens; passwords are scrypt hashes; Apple and Google ID tokens are verified
+  against the providers' keys. Deleting an account removes everything in it and revokes Sign in with Apple.
+  (`accounts.py`, `idtokens.py`, `apple_tokens.py`)
+- **Your library.** Each user's scores, original PDFs and collections, synced across their devices
+  (`library_store.py`). Nothing is visible to anyone else.
+- **Sharing.** An owner can make a code for a score or a collection; anyone with it can look at the music
+  read-only and import their own editable copy. Only notation is shared, never originals. (`shares.py`)
 - **Recognition.** It turns PDFs, scans and photos of sheet music into MusicXML using
-  [Audiveris](https://github.com/Audiveris/audiveris) (open-source optical music recognition). Uploads are
-  queued and run one at a time. Photos are converted to grayscale with the contrast stretched first, which
-  recognises far more reliably.
-- **Small images.** Audiveris needs the staff lines a few pixels apart: it reads best at about 20 px from
-  line to line (a 300 dpi scan) and gives up below about 10, which is what a screenshot of a page has. The
-  server measures the spacing on each image and enlarges it to about 20 px. Because Audiveris is touchy
-  about exact sizes, an enlarged image is read twice (at that size and 25% larger), and the server keeps the
-  reading with more bars that add up to the time signature. A reading that finds nothing is retried at twice
-  the size. The job status shows what happened under `prepared`.
-- **Your library.** It stores scores, their original PDFs and your collections (`library_store.py`). Every
-  device syncs with it, so it's also your backup. The data lives in the `omr-data` volume under `/data/library`.
+  [Audiveris](https://github.com/Audiveris/audiveris). Photos are converted to grayscale with the contrast
+  stretched first. Small images are enlarged so the staff lines are about 20 px apart (Audiveris gives up
+  below about 10); an enlarged image is read at two sizes and the reading with more complete bars wins.
+  Every scan is logged with its device and page count (for per-device free scans later).
 
-`omr_server.py` uses only the Python standard library, plus Pillow for preparing photos.
+Everything is in an SQLite database in the data volume (`db.py`, migrations run at startup); original PDFs
+are files next to it. Standard library only, plus Pillow for photos. The HTTP API is documented at the top
+of `api.py`.
 
 ## Run
 
 The image is `linux/amd64`, because Audiveris only ships x86_64 Linux packages.
 
 ```
+cp server/.env.example server/.env    # then fill it in
 docker compose -f server/docker-compose.yml up -d --build
 curl http://<host>:8765/health
 ```
 
-In the app, set the server address under **Settings → Recognition server**, e.g. `http://192.168.1.20:8765`.
+In the app, the server address goes on the sign-in screen (or Settings → Server), e.g. `192.168.1.20:8765`.
 The iOS simulator can use `http://localhost:8765` when the container runs on the same Mac.
 
-To require a token, set `OMR_TOKEN` (shell or `server/.env`) and enter the same token in the app.
+### On a public address (HTTPS)
+
+Point a domain at the machine, open ports 80 and 443, and set in `.env`: `OMR_DOMAIN`,
+`OMR_PUBLIC_URL=https://<domain>` and `OMR_TRUST_PROXY=1`. Then `docker compose --profile public up -d` starts
+Caddy in front, which gets and renews the certificate. Remove the `8765` port mapping (or firewall it) so
+everything goes through Caddy.
+
+### Sign-in providers and email
 
 | Variable | Default | |
 |---|---|---|
-| `OMR_TOKEN` | unset | Bearer token required on everything except `/health` |
+| `OMR_APPLE_AUDIENCE` | `br.com.firstsoft.musicreader` | Sign in with Apple: the app's bundle id |
+| `OMR_APPLE_TEAM_ID`, `OMR_APPLE_KEY_ID`, `OMR_APPLE_PRIVATE_KEY_FILE` | | A Sign in with Apple key (.p8), to revoke Apple sign-in when an account is deleted (App Store rule) |
+| `OMR_GOOGLE_CLIENT_IDS` | empty (off) | Google Sign-In: the iOS OAuth client id; also set `GoogleClientID` in `ios/project.yml` |
+| `OMR_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `OMR_MAIL_FROM` | | Account emails; without a host they're written to the log |
+| `OMR_PUBLIC_URL` | `http://localhost:8765` | Used in email links and share links |
+
+### Capacity and other settings
+
+| Variable | Default | |
+|---|---|---|
+| `OMR_WORKERS` | `1` | Recognitions at the same time (each can take up to ~4 GB) |
+| `OMR_JOBS_PER_USER` | `3` | Recognitions one user can have waiting or running |
+| `OMR_MAX_PAGES` | `60` | Pages a PDF may have |
 | `OMR_TIMEOUT` | `900` | Seconds before a transcription is abandoned |
-| `OMR_KEEP_HOURS` | `24` | Finished jobs are deleted after this |
+| `OMR_KEEP_HOURS` | `24` | Uploaded files of finished jobs are deleted after this |
 | `OMR_FINGERINGS` | `0` | `1` also recognises printed fingering digits (unreliable on photos) |
 | `AUDIVERIS_VERSION` (build arg) | `5.11.0` | Audiveris release to install |
 
-## API
+Sign-in attempts, new accounts and share-code lookups are rate-limited per address.
 
-| | |
-|---|---|
-| `GET /health` | `{"status":"ok","engine":"audiveris","version":"5.11.0","auth":false,"queued":0}` |
-| `POST /jobs` | Body is the raw file, header `X-Filename: name.pdf`. Returns `202` and the job |
-| `GET /jobs/<id>` | `{"status":"queued\|running\|done\|failed","error":…,"movements":1,"elapsed":12.3}` |
-| `GET /jobs/<id>/musicxml?movement=0` | Uncompressed MusicXML |
-| `DELETE /jobs/<id>` | `204` |
+## Backups
 
-Library (writes carry `X-Modified: <unix seconds>`, the client's modification time):
+`server/backup.sh` (run nightly from cron on the host) writes a consistent snapshot of the database and the
+originals, keeps 14 days, and copies them elsewhere with `BACKUP_REMOTE=user@host:/path`. The script's header
+has the restore command; a restore into a fresh volume has been tried.
 
-| | |
-|---|---|
-| `GET /library` | `{"scores":[{"id","modified","deleted","title","composer","original"}],"collections":{"modified"}}` |
-| `GET` / `PUT` / `DELETE /library/scores/<uuid>` | The score as the app's JSON. `DELETE` leaves a tombstone so other devices learn about it |
-| `GET` / `PUT /library/scores/<uuid>/original` | The imported PDF |
-| `GET` / `PUT /library/collections` | The collections document |
+## Moving a library from before accounts
 
-Back up the library by copying the volume, e.g.
-`docker run --rm -v omr-data:/data -v "$PWD":/backup ubuntu tar czf /backup/music-reader-library.tgz /data/library`.
+Before accounts the server kept one library under `/data/library`. It's left in place. The app uploads its
+copy when you first sign in; to move the server's copy instead (for example, if no device has it):
+
+```
+docker exec <container> python3 omr_server.py import-library you@example.com
+```
+
+## Privacy policy and terms
+
+`/privacy` and `/terms` serve `legal/privacy.html` and `legal/terms.html`. They're drafts describing what the
+server stores; fill in the operator and contact address before publishing.
 
 ## Test
 
 ```
-python3 -m unittest server/test_omr_server.py
+cd server && python3 -m unittest
 ```
 
-The tests run the real HTTP server against a fake Audiveris launcher, so they need neither Docker nor Java.
-They cover the recognition API, the library endpoints, tombstones and photo preparation.
+The tests run the real HTTP server against a fake Audiveris and stand-ins for Apple's and Google's keys, so
+they need neither Docker, Java nor network access. They cover accounts and sessions, token verification,
+guests, private libraries, sharing, deletion, backups, recognition and photo preparation.
 
 ## Accuracy
 
