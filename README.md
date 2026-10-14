@@ -9,7 +9,9 @@ note, hear it at any tempo, and check your intonation against it with the microp
 - `server/`: your own server, packaged as a `linux/amd64` Docker image. It reads sheet music with
   [Audiveris](https://github.com/Audiveris/audiveris) (optical music recognition) and keeps your library:
   scores, their original PDFs and collections, synced across devices. See [server/README.md](server/README.md).
-- `shared/`: files both apps bundle: the Bravura music font (SMuFL, SIL OFL) and sample scores.
+- `shared/`: files both apps bundle: the Bravura music font (SMuFL, SIL OFL), sample scores, and the recorded
+  cello (`sounds/cello`: about 90 bowed notes from the University of Iowa Musical Instrument Samples, free to
+  use without restrictions, built by `tools/SampleBuilder`).
 - `android/`: not started yet. ScoreKit is UI-free and dependency-free so it can be ported module by module,
   the way `tesla-mate-viewer`'s Android `:core:*` modules mirror its Swift package.
 
@@ -43,7 +45,9 @@ The music theory is explicit and tested (`swift test`, 51 tests):
   beat, stem directions, ledger lines, accidentals, ties and slurs across lines, marks stacked above the
   staff) plus hit-testing that maps a tap to a bar, an insertion point and a pitch.
 - **Playback**: the score unrolled into time (repeats, tempo changes, fermatas, ties merged, articulations
-  and dynamics shaping length and loudness), a bowed-string synth, and metronome clicks with a count-in.
+  and dynamics shaping length and loudness), metronome clicks with a count-in, and two voices. The default
+  is a **recorded cello**: each note plays its own recording on the natural string, re-pitched to the exact
+  target of the chosen tuning (within ~5 ¢), with long notes looped. The fallback is a bowed-string synth.
 - **Intonation**: YIN pitch detection tuned for the cello's range, and per-note assessment (median cents,
   steadiness, wrong-note detection, an overall sharp or flat tendency).
 - **OMR client** for the server, **storage** (JSON per score, plus the original PDF for comparison),

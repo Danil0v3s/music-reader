@@ -14,6 +14,8 @@ struct AppSettings: Codable, Equatable {
     var staffSpace: Double = 8
     /// Keep the library (scores, originals, collections) on the server and in step across devices.
     var syncLibrary = true
+    /// Play with the recorded cello (University of Iowa samples) rather than the synthesised tone.
+    var recordedCello = true
 
     init() {}
 
@@ -28,6 +30,7 @@ struct AppSettings: Codable, Equatable {
         countIn = try c.decodeIfPresent(Bool.self, forKey: .countIn) ?? d.countIn
         staffSpace = try c.decodeIfPresent(Double.self, forKey: .staffSpace) ?? d.staffSpace
         syncLibrary = try c.decodeIfPresent(Bool.self, forKey: .syncLibrary) ?? d.syncLibrary
+        recordedCello = try c.decodeIfPresent(Bool.self, forKey: .recordedCello) ?? d.recordedCello
     }
 }
 

@@ -9,3 +9,7 @@
 # Local tooling
 .venv/
 __pycache__/
+
+# Swift Package Manager
+.build/
+.swiftpm/

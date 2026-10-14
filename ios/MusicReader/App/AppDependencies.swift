@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import ScoreKit
 
@@ -10,6 +11,7 @@ final class AppDependencies {
     let sync: SyncService
     /// `shared/` (Bravura, sample scores; the same files Android bundles) is a folder resource.
     let shared: URL
+    private var bag = Set<AnyCancellable>()
 
     init() {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -19,6 +21,19 @@ final class AppDependencies {
         sync = SyncService(library: library, settings: settings)
         shared = Bundle.main.url(forResource: "shared", withExtension: nil) ?? Bundle.main.bundleURL
         seedSampleIfFirstLaunch()
+        loadCelloSamples()
+    }
+
+    /// Decodes the recorded cello (shared/sounds/cello, ~90 notes) off the main thread; until it's ready,
+    /// or if it can't be read, playback uses the synth.
+    private func loadCelloSamples() {
+        let folder = shared.appendingPathComponent("sounds/cello")
+        let player = player
+        settings.settings.map(\.recordedCello).removeDuplicates().sink { player.useSamples = $0 }.store(in: &bag)
+        Task.detached(priority: .utility) {
+            let bank = try? SampleBank.load(from: folder)
+            await MainActor.run { player.bank = bank }
+        }
     }
 
     func omrClient() -> OMRClient? {

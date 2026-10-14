@@ -118,3 +118,56 @@ final class CollectionTests: XCTestCase {
         sub.cancel()
     }
 }
+
+final class SampleBankTests: XCTestCase {
+    /// The real sample set in shared/sounds/cello.
+    func bank() throws -> SampleBank {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()   // Tests/ScoreKitTests
+            .deletingLastPathComponent().deletingLastPathComponent()             // ScoreKit
+            .deletingLastPathComponent().deletingLastPathComponent()             // repo
+        return try SampleBank.load(from: root.appendingPathComponent("shared/sounds/cello"))
+    }
+
+    func schedule(_ pitches: [Pitch], key: KeySignature = .cMajor, tuning: Tuning = .standard) -> PlaybackSchedule {
+        var m = Measure(number: 1)
+        m.attributes = MeasureAttributes(clef: .bass, key: key, time: TimeSignature(4, 4), tempo: Tempo(bpm: 60))
+        m.items = [.note(NoteEvent(duration: .whole, pitches: pitches))]
+        return PlaybackSchedule.build(part: Part(name: "Vc", measures: [m]), tuning: tuning)
+    }
+
+    func pitch(of audio: [Float], at seconds: Double) -> Double? {
+        let start = Int(seconds * 44100)
+        return PitchDetector(sampleRate: 44100).detect(Array(audio[start..<start + 4096]))?.frequency
+    }
+
+    func testCoversTheCelloRange() throws {
+        let b = try bank()
+        let notes = Set(b.manifest.notes.map(\.midi))
+        XCTAssertTrue(notes.contains(36), "open C string")
+        XCTAssertGreaterThanOrEqual(notes.count, 40)
+        XCTAssertTrue(b.manifest.notes.allSatisfy { $0.loopStart < $0.loopEnd && $0.loopEnd <= $0.frames })
+    }
+
+    func testRecordedNotesPlayAtTheExactTargetPitch() throws {
+        let b = try bank()
+        let synth = Synth(sampleRate: 44100)
+        // A3 at A = 440, sampled from a take that isn't exactly 220 Hz, and well past the recording's length
+        // (3.5 s into a 4 s note), so through the loop.
+        let audio = synth.renderSampled(schedule([Pitch(.a, 3)]), bank: b)
+        for t in [0.8, 3.5] {
+            let f = try XCTUnwrap(pitch(of: audio, at: t))
+            // Notes are corrected by their median pitch; the recorded player drifts a few cents within a note,
+            // which stays below what the ear can tell apart (~5 ¢).
+            XCTAssertEqual(Tuning.cents(f, relativeTo: 220), 0, accuracy: 5, "at \(t) s")
+        }
+    }
+
+    func testFollowsTheTuningSystem() throws {
+        let b = try bank()
+        // E3 in C major, just intonation: a pure third above C, 13.7 ¢ below equal temperament.
+        let just = Tuning(system: .just)
+        let audio = Synth(sampleRate: 44100).renderSampled(schedule([Pitch(.e, 3)], tuning: just), bank: b)
+        let f = try XCTUnwrap(pitch(of: audio, at: 1.0))
+        XCTAssertEqual(Tuning.cents(f, relativeTo: Tuning.standard.frequency(of: Pitch(.e, 3))), -13.7, accuracy: 5)
+    }
+}

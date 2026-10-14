@@ -51,9 +51,9 @@ final class SettingsViewController: UITableViewController {
         case .sync: 3
         case .tuning: 2
         case .intonation: 2
-        case .playback: 1
+        case .playback: 2
         case .library: 1
-        case .about: 2
+        case .about: 3
         }
     }
 
@@ -157,6 +157,16 @@ final class SettingsViewController: UITableViewController {
             toggle.isOn = s.countIn
             toggle.addAction(UIAction { [weak self, weak toggle] _ in self?.settings.update { $0.countIn = toggle?.isOn ?? true } }, for: .valueChanged)
             cell.accessoryView = toggle
+        case (.playback, 1):
+            content = .subtitleCell()
+            content.text = "Recorded cello"
+            content.secondaryText = "Real bowed notes (University of Iowa samples). Off: a synthesised tone."
+            content.secondaryTextProperties.color = .secondaryLabel
+            content.secondaryTextProperties.numberOfLines = 0
+            let toggle = UISwitch()
+            toggle.isOn = s.recordedCello
+            toggle.addAction(UIAction { [weak self, weak toggle] _ in self?.settings.update { $0.recordedCello = toggle?.isOn ?? true } }, for: .valueChanged)
+            cell.accessoryView = toggle
         case (.library, 0):
             content = .cell()
             content.text = "Add the Sample Étude"
@@ -166,6 +176,11 @@ final class SettingsViewController: UITableViewController {
             content = .subtitleCell()
             content.text = "Bravura music font"
             content.secondaryText = "© Steinberg Media Technologies, SIL Open Font License 1.1"
+            content.secondaryTextProperties.color = .secondaryLabel
+        case (.about, 2):
+            content = .subtitleCell()
+            content.text = "Cello recordings"
+            content.secondaryText = "University of Iowa Electronic Music Studios, Musical Instrument Samples · free to use without restrictions"
             content.secondaryTextProperties.color = .secondaryLabel
         case (.about, 1):
             content = .subtitleCell()

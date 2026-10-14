@@ -32,10 +32,15 @@ final class ScorePlayer {
     let state = CurrentValueSubject<State, Never>(.stopped)
     var metronome = false { didSet { clickNode.volume = metronome ? 1 : 0 } }
     var musicVolume: Float = 1 { didSet { musicNode.volume = musicVolume } }
+    /// Recorded cello notes; nil until loaded (or if the set is missing), and then the synth plays.
+    var bank: SampleBank?
+    var useSamples = true
 
     private let engine = AVAudioEngine()
     private let musicNode = AVAudioPlayerNode()
     private let clickNode = AVAudioPlayerNode()
+    /// The samples were recorded in a dead room; a little room sound makes them natural.
+    private let reverb = AVAudioUnitReverb()
     private let sampleRate = 44100.0
     private lazy var format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
     private var schedule: PlaybackSchedule?
@@ -49,7 +54,11 @@ final class ScorePlayer {
     init() {
         engine.attach(musicNode)
         engine.attach(clickNode)
-        engine.connect(musicNode, to: engine.mainMixerNode, format: format)
+        engine.attach(reverb)
+        reverb.loadFactoryPreset(.mediumRoom)
+        reverb.wetDryMix = 18
+        engine.connect(musicNode, to: reverb, format: format)
+        engine.connect(reverb, to: engine.mainMixerNode, format: format)
         engine.connect(clickNode, to: engine.mainMixerNode, format: format)
         clickNode.volume = 0
     }
@@ -78,10 +87,12 @@ final class ScorePlayer {
         let countIn = (0..<countInBeats).map { -Double(countInBeats - $0) * beatLength }
         let leadIn = countIn.first.map { -$0 } ?? 0
         let sr = sampleRate
+        let bank = useSamples ? bank : nil
         Task.detached(priority: .userInitiated) {
             session.activate()
             let synth = Synth(sampleRate: sr)
-            let music = synth.renderMusic(schedule, from: start, leadIn: leadIn)
+            let music = bank.map { synth.renderSampled(schedule, bank: $0, from: start, leadIn: leadIn) }
+                ?? synth.renderMusic(schedule, from: start, leadIn: leadIn)
             let clicks = synth.renderClicks(schedule, from: start, countIn: countIn)
             await MainActor.run {
                 guard gen == self.generation else { return }
