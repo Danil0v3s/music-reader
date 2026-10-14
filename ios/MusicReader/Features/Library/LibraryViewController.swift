@@ -22,12 +22,15 @@ final class LibraryViewController: UIViewController {
     private let onNew: () -> Void
 
     private var collection: UICollectionView!
+    private let onOpenSharedCode: () -> Void
+    private let onShareCollection: (UUID) -> Void
     private var dataSource: UICollectionViewDiffableDataSource<Section, Item>!
     private var bag = Set<AnyCancellable>()
     private var query = ""
 
     init(library: ScoreLibrary, sync: SyncService, onOpen: @escaping (UUID) -> Void, onOpenCollection: @escaping (UUID) -> Void,
-         onImportFile: @escaping () -> Void, onImportPhoto: @escaping () -> Void, onScan: @escaping () -> Void, onNew: @escaping () -> Void) {
+         onImportFile: @escaping () -> Void, onImportPhoto: @escaping () -> Void, onScan: @escaping () -> Void, onNew: @escaping () -> Void,
+         onOpenSharedCode: @escaping () -> Void, onShareCollection: @escaping (UUID) -> Void) {
         self.library = library
         self.sync = sync
         self.onOpen = onOpen
@@ -36,6 +39,8 @@ final class LibraryViewController: UIViewController {
         self.onImportPhoto = onImportPhoto
         self.onScan = onScan
         self.onNew = onNew
+        self.onOpenSharedCode = onOpenSharedCode
+        self.onShareCollection = onShareCollection
         super.init(nibName: nil, bundle: nil)
         title = "Library"
     }
@@ -120,6 +125,7 @@ final class LibraryViewController: UIViewController {
 
     static func subtitle(_ s: ScoreSummary) -> String {
         var parts: [String] = []
+        if let owner = s.sharedBy { parts.append("from \(owner)") }
         if !s.composer.isEmpty { parts.append(s.composer) }
         parts.append(s.key.name)
         parts.append(s.time.description)
@@ -142,6 +148,7 @@ final class LibraryViewController: UIViewController {
                 UIAction(title: "Import File", subtitle: "PDF, image or MusicXML from Files", image: UIImage(systemName: "doc.badge.plus")) { [weak self] _ in self?.onImportFile() },
             ]),
             UIAction(title: "New Collection", image: UIImage(systemName: "folder.badge.plus")) { [weak self] _ in self?.newCollection(adding: []) },
+            UIAction(title: "Open Shared Code…", subtitle: "Music someone shared with you", image: UIImage(systemName: "person.2")) { [weak self] _ in self?.onOpenSharedCode() },
         ])
     }
 
@@ -263,7 +270,13 @@ extension LibraryViewController: UICollectionViewDelegate {
     }
 
     func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath], point: CGPoint) -> UIContextMenuConfiguration? {
-        guard let indexPath = indexPaths.first, case .score(let s) = dataSource.itemIdentifier(for: indexPath) else { return nil }
+        guard let indexPath = indexPaths.first else { return nil }
+        if case .collection(let id) = dataSource.itemIdentifier(for: indexPath) {
+            return UIContextMenuConfiguration(actionProvider: { [weak self] _ in
+                UIMenu(children: [UIAction(title: "Share…", image: UIImage(systemName: "person.2")) { [weak self] _ in self?.onShareCollection(id) }])
+            })
+        }
+        guard case .score(let s) = dataSource.itemIdentifier(for: indexPath) else { return nil }
         return UIContextMenuConfiguration(actionProvider: { [weak self] _ in
             guard let self else { return nil }
             return UIMenu(children: [

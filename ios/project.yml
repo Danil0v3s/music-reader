@@ -71,6 +71,10 @@ targets:
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: Music Reader sends sheet music to your recognition server on the local network.
         ITSAppUsesNonExemptEncryption: false
+        # Shared links: musicreader://share/<code> (the page at https://<server>/s/<code> links to it).
+        CFBundleURLTypes:
+          - CFBundleURLName: br.com.firstsoft.musicreader.share
+            CFBundleURLSchemes: [musicreader]
         # Open PDFs and MusicXML from Files, Mail or Safari.
         CFBundleDocumentTypes:
           - CFBundleTypeName: PDF

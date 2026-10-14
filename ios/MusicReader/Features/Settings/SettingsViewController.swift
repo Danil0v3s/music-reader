@@ -12,15 +12,18 @@ final class SettingsViewController: UITableViewController {
     private let onSignIn: () -> Void
     private let onSignOut: () -> Void
     private let onDeleteAccount: () -> Void
+    private let onMyShares: () -> Void
     private var serverStatus = ""
     private var testing = false
     private var bag = Set<AnyCancellable>()
 
     private enum Section: Int, CaseIterable { case account, server, sync, tuning, intonation, playback, library, about }
-    private enum AccountRow { case who, signIn, signOut, delete }
+    private enum AccountRow { case who, shares, signIn, signOut, delete }
 
     init(settings: SettingsStore, library: ScoreLibrary, sync: SyncService, account: AccountStore, sample: @escaping () -> Score?,
-         onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void, onDeleteAccount: @escaping () -> Void) {
+         onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void, onDeleteAccount: @escaping () -> Void,
+         onMyShares: @escaping () -> Void) {
+        self.onMyShares = onMyShares
         self.settings = settings
         self.library = library
         self.sync = sync
@@ -51,7 +54,7 @@ final class SettingsViewController: UITableViewController {
 
     private var accountRows: [AccountRow] {
         guard let user = account.user else { return [.signIn] }
-        return user.isGuest ? [.who, .signIn, .delete] : [.who, .signOut, .delete]
+        return user.isGuest ? [.who, .shares, .signIn, .delete] : [.who, .shares, .signOut, .delete]
     }
 
     private var syncStatusText: String {
@@ -224,6 +227,7 @@ final class SettingsViewController: UITableViewController {
         if Section(rawValue: indexPath.section) == .account {
             switch accountRows[indexPath.row] {
             case .who: break
+            case .shares: onMyShares()
             case .signIn: onSignIn()
             case .signOut: onSignOut()
             case .delete: onDeleteAccount()
@@ -287,6 +291,10 @@ final class SettingsViewController: UITableViewController {
             content.secondaryTextProperties.numberOfLines = 0
             content.image = UIImage(systemName: user?.isGuest == true ? "person.crop.circle.badge.questionmark" : "person.crop.circle.fill")
             cell.selectionStyle = .none
+        case .shares:
+            content.text = "Shared by Me"
+            content.image = UIImage(systemName: "person.2")
+            cell.accessoryType = .disclosureIndicator
         case .signIn:
             content.text = account.user?.isGuest == true ? "Sign In or Create Account" : "Sign In"
             content.textProperties.color = Theme.accent

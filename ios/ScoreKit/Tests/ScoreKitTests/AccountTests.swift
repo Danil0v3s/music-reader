@@ -86,6 +86,37 @@ final class AccountTests: XCTestCase {
         XCTAssertTrue(ScoreLibrary(directory: dir).summaries.value.isEmpty, "and it stays gone after a relaunch")
     }
 
+    func testShareCodesInTextAndLinks() {
+        XCTAssertEqual(ShareClient.code(in: " abcd-efgh "), "ABCDEFGH")
+        XCTAssertEqual(ShareClient.code(in: "https://music.example.com/s/ABCDEFGH"), "ABCDEFGH")
+        XCTAssertEqual(ShareClient.code(in: "musicreader://share/abcd-efgh"), "ABCDEFGH")
+        XCTAssertNil(ShareClient.code(in: "hello"))
+    }
+
+    func testOpeningASharedScoreKeepsItsDatesAndOrigin() async throws {
+        StubProtocol.handler = { r in
+            XCTAssertEqual(r.value(forHTTPHeaderField: "Accept"), "application/json")
+            XCTAssertTrue(r.url!.path.hasSuffix("/s/ABCDEFGH"))
+            let score: [String: Any] = ["id": "6F1C2A1E-0B6A-4C0E-9C7B-6A7A3E8D2F11", "title": "Theme", "composer": "", "parts": [],
+                                        "source": "manual", "created": "2026-10-01T10:00:00.000Z", "modified": "2026-10-01T10:00:00.000Z"]
+            return (200, ["kind": "score", "code": "ABCD-EFGH", "title": "Theme", "owner": "Ana", "score": score])
+        }
+        let item = try await ShareClient(config: config, auth: StubSession(), session: urlSession).open("abcd-efgh")
+        XCTAssertEqual(item.kind, .score)
+        XCTAssertEqual(item.owner, "Ana")
+        XCTAssertEqual(item.score?.title, "Theme")
+        XCTAssertEqual(item.scores.count, 1)
+        XCTAssertEqual(item.score?.modified, LibraryDates.date("2026-10-01T10:00:00.000Z"))
+    }
+
+    func testImportedCopiesSayWhoseTheyWere() throws {
+        let json = #"{"id":"6F1C2A1E-0B6A-4C0E-9C7B-6A7A3E8D2F11","title":"Theme","composer":"","parts":[],"source":"manual","created":"2026-10-01T10:00:00.000Z","modified":"2026-10-01T10:00:00.000Z","importedFrom":{"code":"ABCD-EFGH","owner":"Ana","title":"Theme"}}"#
+        let score = try LibraryDates.decoder().decode(Score.self, from: Data(json.utf8))
+        XCTAssertEqual(score.importedFrom?.owner, "Ana")
+        let plain = #"{"id":"6F1C2A1E-0B6A-4C0E-9C7B-6A7A3E8D2F11","title":"Mine","composer":"","parts":[],"source":"manual","created":"2026-10-01T10:00:00.000Z","modified":"2026-10-01T10:00:00.000Z"}"#
+        XCTAssertNil(try LibraryDates.decoder().decode(Score.self, from: Data(plain.utf8)).importedFrom, "scores from before sharing still read")
+    }
+
     func testSignInResultDecodes() throws {
         let json = #"{"accessToken":"a","refreshToken":"r","expiresIn":3600,"mergedScores":2,"user":{"id":"u","displayName":"","email":null,"emailVerified":false,"isGuest":true,"providers":[],"created":1}}"#
         let r = try JSONDecoder().decode(SignInResult.self, from: Data(json.utf8))

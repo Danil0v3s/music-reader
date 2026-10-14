@@ -43,6 +43,11 @@ final class AppDependencies {
         return account.config.map { OMRClient(config: $0, auth: account.vault) }
     }
 
+    func shareClient() -> ShareClient? {
+        guard account.user != nil, let config = account.config else { return nil }
+        return ShareClient(config: config, auth: account.vault)
+    }
+
     /// Signs out: syncs what hasn't reached the server yet, ends the session, and clears this device's
     /// library (it's the account's, and stays on the server). Returns false, without signing out, when
     /// unsynced changes couldn't be uploaded and `force` isn't set.

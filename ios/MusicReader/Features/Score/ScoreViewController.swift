@@ -13,6 +13,11 @@ final class ScoreViewController: UIViewController {
     private let onPractice: (Int) -> Void
     private let onOriginal: () -> Void
     private let onShare: ([Any], UIBarButtonItem?) -> Void
+    /// Share a code for this score (my scores only).
+    private let onShareCode: (() -> Void)?
+    /// Someone else's shared score, read-only: importing saves my own copy.
+    private let onImport: (() -> Void)?
+    private var isShared: Bool { onImport != nil }
 
     private let scroll = UIScrollView()
     private let scoreView = ScoreView()
@@ -28,7 +33,8 @@ final class ScoreViewController: UIViewController {
     private var moreItem: UIBarButtonItem!
 
     init(score: Score, library: ScoreLibrary, player: ScorePlayer, settings: SettingsStore, onEdit: @escaping () -> Void,
-         onPractice: @escaping (Int) -> Void, onOriginal: @escaping () -> Void, onShare: @escaping ([Any], UIBarButtonItem?) -> Void) {
+         onPractice: @escaping (Int) -> Void, onOriginal: @escaping () -> Void, onShare: @escaping ([Any], UIBarButtonItem?) -> Void,
+         onShareCode: (() -> Void)? = nil, onImport: (() -> Void)? = nil) {
         self.score = score
         self.library = library
         self.player = player
@@ -37,6 +43,8 @@ final class ScoreViewController: UIViewController {
         self.onPractice = onPractice
         self.onOriginal = onOriginal
         self.onShare = onShare
+        self.onShareCode = onShareCode
+        self.onImport = onImport
         super.init(nibName: nil, bundle: nil)
         title = score.title
         navigationItem.largeTitleDisplayMode = .never
@@ -87,7 +95,18 @@ final class ScoreViewController: UIViewController {
             self.onPractice(self.loop?.lowerBound ?? self.startMeasure)
         })
         moreItem = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: moreMenu())
-        navigationItem.rightBarButtonItems = [moreItem, edit, practice]
+        if let onImport {
+            var c = UIButton.Configuration.filled()
+            c.title = "Import"
+            c.image = UIImage(systemName: "square.and.arrow.down")
+            c.imagePadding = 6
+            c.cornerStyle = .capsule
+            c.baseBackgroundColor = Theme.accent
+            let importButton = UIButton(configuration: c, primaryAction: UIAction { [weak self] _ in self?.stopPlayback(); onImport() })
+            navigationItem.rightBarButtonItems = [moreItem, UIBarButtonItem(customView: importButton)]
+        } else {
+            navigationItem.rightBarButtonItems = [moreItem, edit, practice]
+        }
 
         transport.metronome = settings.value.metronome
         transport.onPlay = { [weak self] in self?.togglePlay() }
@@ -107,7 +126,7 @@ final class ScoreViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         // Back from the editor: show the saved changes.
-        if let fresh = try? library.load(score.id), fresh != score {
+        if !isShared, let fresh = try? library.load(score.id), fresh != score {
             score = fresh
             title = score.title
             scoreView.score = score
@@ -310,7 +329,16 @@ final class ScoreViewController: UIViewController {
 
     private func moreMenu() -> UIMenu {
         var items: [UIMenuElement] = []
-        if FileManager.default.fileExists(atPath: library.originalURL(score.id).path) {
+        if let onShareCode {
+            items.append(UIAction(title: "Share…", subtitle: "A code friends can open", image: UIImage(systemName: "person.2")) { [weak self] _ in
+                self?.stopPlayback()
+                onShareCode()
+            })
+        }
+        if let from = score.importedFrom {
+            items.append(UIAction(title: "Shared by \(from.owner)", subtitle: "Code \(from.code)", image: UIImage(systemName: "person.crop.circle"), attributes: .disabled) { _ in })
+        }
+        if !isShared, FileManager.default.fileExists(atPath: library.originalURL(score.id).path) {
             items.append(UIAction(title: "Show Original PDF", image: UIImage(systemName: "doc.richtext")) { [weak self] _ in self?.onOriginal() })
         }
         items.append(UIMenu(title: "Size", options: .displayInline, children: [
@@ -326,6 +354,7 @@ final class ScoreViewController: UIViewController {
                 }
             }))
         }
+        if isShared { return UIMenu(children: items) }
         items.append(UIMenu(title: "Export", options: .displayInline, children: [
             UIAction(title: "Export MusicXML", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in self?.export(pdf: false) },
             UIAction(title: "Export PDF", image: UIImage(systemName: "doc")) { [weak self] _ in self?.export(pdf: true) },

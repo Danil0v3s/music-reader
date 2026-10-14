@@ -21,6 +21,10 @@ protocol Coordinator: AnyObject {
     func showOriginal(_ id: UUID)
     func showServerSettings()
     func signIn(upgrade: Bool)
+    func shareScore(_ id: UUID)
+    func shareCollection(_ id: UUID)
+    func openSharedCode(_ code: String?)
+    func showMyShares()
     func signOut()
     func deleteAccount()
     func share(_ items: [Any], from source: UIBarButtonItem?)
@@ -79,6 +83,111 @@ final class AppCoordinator: NSObject, Coordinator {
         top.present(nav, animated: true)
     }
 
+    // MARK: Sharing
+
+    func shareScore(_ id: UUID) {
+        let name = dependencies.library.summaries.value.first { $0.id == id }?.title ?? "Score"
+        presentShareCode(.score, id: id, name: name)
+    }
+
+    func shareCollection(_ id: UUID) {
+        presentShareCode(.collection, id: id, name: dependencies.library.collections.value.collection(id)?.name ?? "Collection")
+    }
+
+    private func presentShareCode(_ kind: Share.Kind, id: UUID, name: String) {
+        guard let client = dependencies.shareClient() else {
+            alert("Sign In to Share", "Sharing needs the server and an account.")
+            return
+        }
+        let sync = dependencies.sync
+        let vc = ShareCodeViewController(kind: kind, id: id, name: name, client: client) { await sync.syncNow()?.value }
+        let nav = UINavigationController(rootViewController: vc)
+        if let s = nav.sheetPresentationController { s.detents = [.large()]; s.prefersGrabberVisible = true }
+        top.present(nav, animated: true)
+    }
+
+    /// Opens shared music: asks for the code when there isn't one (typed, or a link pasted).
+    func openSharedCode(_ code: String?) {
+        guard let code else {
+            let a = UIAlertController(title: "Open Shared Code", message: "Enter the code someone shared with you, or paste their link.", preferredStyle: .alert)
+            a.addTextField { f in
+                f.placeholder = "ABCD-EFGH"
+                f.autocapitalizationType = .allCharacters
+                f.autocorrectionType = .no
+            }
+            a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            a.addAction(UIAlertAction(title: "Open", style: .default) { [weak self, weak a] _ in
+                let text = a?.textFields?.first?.text ?? ""
+                guard let code = ShareClient.code(in: text) else {
+                    self?.alert("That Isn't a Code", "Share codes have 8 letters and numbers, like ABCD-EFGH.")
+                    return
+                }
+                self?.openSharedCode(code)
+            })
+            top.present(a, animated: true)
+            return
+        }
+        guard let client = dependencies.shareClient() else {
+            alert("Sign In First", "Open the code again once you've signed in (or continued as a guest).")
+            return
+        }
+        Task { @MainActor in
+            do {
+                let item = try await client.open(code)
+                showShared(item, client: client)
+            } catch {
+                alert("Couldn't Open the Code", error.localizedDescription)
+            }
+        }
+    }
+
+    private func showShared(_ item: SharedItem, client: ShareClient) {
+        let nav = UINavigationController()
+        let importIt: () -> Void = { [weak self] in self?.importShared(item, client: client, from: nav) }
+        if item.kind == .score, let score = item.score {
+            nav.viewControllers = [factory.sharedScore(score, onImport: importIt)]
+        } else {
+            nav.viewControllers = [SharedCollectionViewController(item: item, onOpen: { [weak self, weak nav] score in
+                guard let self else { return }
+                nav?.pushViewController(self.factory.sharedScore(score, onImport: importIt), animated: true)
+            }, onImport: importIt)]
+        }
+        nav.viewControllers.first?.navigationItem.leftBarButtonItem = UIBarButtonItem(systemItem: .close, primaryAction: UIAction { [weak nav] _ in
+            nav?.dismiss(animated: true)
+        })
+        nav.modalPresentationStyle = .fullScreen
+        dismissAll { self.top.present(nav, animated: true) }
+    }
+
+    private func importShared(_ item: SharedItem, client: ShareClient, from nav: UINavigationController) {
+        Task { @MainActor in
+            do {
+                let result = try await client.importCopy(item.code)
+                await dependencies.sync.syncNow()?.value
+                nav.dismiss(animated: true) {
+                    if let collection = result.collectionId { self.openCollection(collection) }
+                    else if let first = result.scoreIds.first { self.openScore(first) }
+                }
+            } catch {
+                nav.topViewController.map { vc in
+                    let a = UIAlertController(title: "Couldn't Import", message: error.localizedDescription, preferredStyle: .alert)
+                    a.addAction(UIAlertAction(title: "OK", style: .default))
+                    vc.present(a, animated: true)
+                }
+            }
+        }
+    }
+
+    func showMyShares() {
+        guard let client = dependencies.shareClient() else { return }
+        let vc = MySharesViewController(client: client) { [weak self] share in
+            guard let self, let id = UUID(uuidString: share.id) else { return }
+            share.kind == .score ? self.shareScore(id) : self.shareCollection(id)
+        }
+        root.selectedIndex = 2
+        settingsNav.pushViewController(vc, animated: true)
+    }
+
     func signOut() {
         Task { @MainActor in
             if await dependencies.signOut() { return }
@@ -126,6 +235,7 @@ final class AppCoordinator: NSObject, Coordinator {
     }
 
     func openCollection(_ id: UUID) {
+        root.selectedIndex = 0
         libraryNav.pushViewController(factory.collection(id), animated: true)
     }
 

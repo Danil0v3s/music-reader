@@ -1,3 +1,4 @@
+import ScoreKit
 import UIKit
 
 /// UIKit entry point. The window lives in `SceneDelegate`.
@@ -28,7 +29,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         self.coordinator = coordinator
         self.dependencies = dependencies
         coordinator.start()
-        if let url = connectionOptions.urlContexts.first?.url { coordinator.importFile(url) }
+        if let url = connectionOptions.urlContexts.first?.url { open(url) }
     }
 
     /// Coming back to the app picks up changes made on other devices. While the app is in front the screen
@@ -43,6 +44,15 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
-        if let url = contexts.first?.url { coordinator?.importFile(url) }
+        if let url = contexts.first?.url { open(url) }
+    }
+
+    /// A shared link (musicreader://share/CODE) opens the shared music; a file goes to the import flow.
+    private func open(_ url: URL) {
+        if url.scheme == "musicreader", let code = ShareClient.code(in: url.absoluteString) {
+            DispatchQueue.main.async { self.coordinator?.openSharedCode(code) }
+        } else {
+            coordinator?.importFile(url)
+        }
     }
 }

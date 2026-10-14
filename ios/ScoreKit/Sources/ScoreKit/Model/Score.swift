@@ -1,5 +1,18 @@
 import Foundation
 
+/// Where an imported copy came from: the share code, its owner's name, and what it was called.
+public struct ImportOrigin: Hashable, Codable, Sendable {
+    public var code: String
+    public var owner: String
+    public var title: String?
+
+    public init(code: String, owner: String, title: String? = nil) {
+        self.code = code
+        self.owner = owner
+        self.title = title
+    }
+}
+
 /// A whole piece. The app works with a single-staff part (the cello part) but the model keeps a list so a
 /// MusicXML file with several parts round-trips and the user can pick which one to read.
 public struct Score: Hashable, Codable, Sendable, Identifiable {
@@ -12,6 +25,8 @@ public struct Score: Hashable, Codable, Sendable, Identifiable {
     public var source: Source
     public var created: Date
     public var modified: Date
+    /// For a copy imported from someone's share: whose it was. Nil for everything else.
+    public var importedFrom: ImportOrigin?
 
     public init(id: UUID = UUID(), title: String, composer: String = "", parts: [Part], source: Source = .manual,
                 created: Date = Date(), modified: Date = Date()) {

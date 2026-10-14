@@ -14,7 +14,11 @@ final class CollectionViewController: UIViewController {
     private var dataSource: UICollectionViewDiffableDataSource<Int, ScoreSummary>!
     private var bag = Set<AnyCancellable>()
 
-    init(collectionId: UUID, library: ScoreLibrary, onOpen: @escaping (UUID) -> Void, onDeleted: @escaping () -> Void) {
+    private let onShare: () -> Void
+
+    init(collectionId: UUID, library: ScoreLibrary, onOpen: @escaping (UUID) -> Void, onDeleted: @escaping () -> Void,
+         onShare: @escaping () -> Void) {
+        self.onShare = onShare
         self.collectionId = collectionId
         self.library = library
         self.onOpen = onOpen
@@ -33,6 +37,7 @@ final class CollectionViewController: UIViewController {
         let add = UIBarButtonItem(systemItem: .add, primaryAction: UIAction { [weak self] _ in self?.addScores() })
         add.accessibilityLabel = "Add Scores"
         let more = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: [
+            UIAction(title: "Share…", subtitle: "A code friends can open", image: UIImage(systemName: "person.2")) { [weak self] _ in self?.onShare() },
             UIAction(title: "Rename", image: UIImage(systemName: "pencil")) { [weak self] _ in self?.rename() },
             UIAction(title: "Reorder", image: UIImage(systemName: "arrow.up.arrow.down")) { [weak self] _ in self?.setEditing(true, animated: true) },
             UIAction(title: "Delete Collection", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in self?.deleteCollection() },

@@ -15,13 +15,16 @@ final class ViewFactory {
                               onImportFile: { [weak self] in self?.coordinator?.pickFileToImport() },
                               onImportPhoto: { [weak self] in self?.coordinator?.pickPhotoToImport() },
                               onScan: { [weak self] in self?.coordinator?.scanWithCamera() },
-                              onNew: { [weak self] in self?.coordinator?.newScore() })
+                              onNew: { [weak self] in self?.coordinator?.newScore() },
+                              onOpenSharedCode: { [weak self] in self?.coordinator?.openSharedCode(nil) },
+                              onShareCollection: { [weak self] in self?.coordinator?.shareCollection($0) })
     }
 
     func collection(_ id: UUID) -> CollectionViewController {
         CollectionViewController(collectionId: id, library: d.library,
                                  onOpen: { [weak self] in self?.coordinator?.openScore($0) },
-                                 onDeleted: { [weak self] in self?.coordinator?.closeCollection(id) })
+                                 onDeleted: { [weak self] in self?.coordinator?.closeCollection(id) },
+                                 onShare: { [weak self] in self?.coordinator?.shareCollection(id) })
     }
 
     func score(_ id: UUID) -> ScoreViewController? {
@@ -29,7 +32,14 @@ final class ViewFactory {
         let c = coordinator
         return ScoreViewController(score: score, library: d.library, player: d.player, settings: d.settings,
                                    onEdit: { c?.editScore(id) }, onPractice: { c?.practice(id, startMeasure: $0) },
-                                   onOriginal: { c?.showOriginal(id) }, onShare: { c?.share($0, from: $1) })
+                                   onOriginal: { c?.showOriginal(id) }, onShare: { c?.share($0, from: $1) },
+                                   onShareCode: { c?.shareScore(id) })
+    }
+
+    /// Someone else's shared score: read-only, with Import.
+    func sharedScore(_ score: Score, onImport: @escaping () -> Void) -> ScoreViewController {
+        ScoreViewController(score: score, library: d.library, player: d.player, settings: d.settings,
+                            onEdit: {}, onPractice: { _ in }, onOriginal: {}, onShare: { _, _ in }, onImport: onImport)
     }
 
     func editor(_ id: UUID) -> EditorViewController? {
@@ -61,7 +71,7 @@ final class ViewFactory {
         return SettingsViewController(settings: d.settings, library: d.library, sync: d.sync, account: d.account,
                                       sample: { [weak self] in self?.d.sampleScore() },
                                       onSignIn: { c?.signIn(upgrade: true) }, onSignOut: { c?.signOut() },
-                                      onDeleteAccount: { c?.deleteAccount() })
+                                      onDeleteAccount: { c?.deleteAccount() }, onMyShares: { c?.showMyShares() })
     }
 
     func signIn(mode: SignInViewController.Mode, onDone: @escaping () -> Void) -> SignInViewController {

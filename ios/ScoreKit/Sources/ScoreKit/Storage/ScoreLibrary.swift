@@ -18,6 +18,18 @@ public enum LibraryDates {
     /// The comparison key sync uses.
     public static func millis(_ d: Date) -> Int64 { Int64((d.timeIntervalSince1970 * 1000).rounded()) }
     public static func millis(_ seconds: Double) -> Int64 { Int64((seconds * 1000).rounded()) }
+
+    /// A decoder for the library's JSON (dates as ISO 8601 strings, as the app writes them).
+    public static func decoder() -> JSONDecoder {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .custom { decoder in
+            let c = try decoder.singleValueContainer()
+            let s = try c.decode(String.self)
+            guard let date = date(s) else { throw DecodingError.dataCorruptedError(in: c, debugDescription: "Bad date \(s)") }
+            return date
+        }
+        return d
+    }
 }
 
 /// What the library list shows, without loading every score.
@@ -31,8 +43,10 @@ public struct ScoreSummary: Hashable, Codable, Sendable, Identifiable {
     public var time: TimeSignature
     public var modified: Date
     public var hasOriginal: Bool
+    /// Whose share this score was imported from, if it was.
+    public var sharedBy: String?
 
-    init(_ score: Score, hasOriginal: Bool) {
+    public init(_ score: Score, hasOriginal: Bool) {
         id = score.id
         title = score.title
         composer = score.composer
@@ -44,6 +58,7 @@ public struct ScoreSummary: Hashable, Codable, Sendable, Identifiable {
         time = a.time
         modified = score.modified
         self.hasOriginal = hasOriginal
+        sharedBy = score.importedFrom?.owner
     }
 }
 
@@ -72,18 +87,7 @@ public final class ScoreLibrary: @unchecked Sendable {
         e.outputFormatting = .sortedKeys
         return e
     }()
-    private let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .custom { decoder in
-            let c = try decoder.singleValueContainer()
-            let s = try c.decode(String.self)
-            guard let date = LibraryDates.date(s) else {
-                throw DecodingError.dataCorruptedError(in: c, debugDescription: "Bad date \(s)")
-            }
-            return date
-        }
-        return d
-    }()
+    private let decoder = LibraryDates.decoder()
 
     public init(directory: URL) {
         self.directory = directory
