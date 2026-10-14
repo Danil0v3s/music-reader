@@ -40,6 +40,7 @@ RUN useradd --create-home --uid 10001 omr && mkdir -p /data && chown omr /data
 USER omr
 WORKDIR /home/omr
 COPY --chown=omr omr_server.py api.py accounts.py apple_tokens.py db.py idtokens.py library_store.py mailer.py ./
+COPY --chown=omr legal ./legal
 
 VOLUME /data
 EXPOSE 8765

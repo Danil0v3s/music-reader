@@ -7,6 +7,8 @@ import json
 import time
 import unittest
 
+import threading
+
 from testsupport import TMP, call, guest, omr_server
 
 TOKEN = guest()["accessToken"]
@@ -69,6 +71,31 @@ class ServerTests(unittest.TestCase):
         job = wait(json.loads(body)["id"])
         self.assertEqual(job["status"], "failed")
         self.assertIn("no staves found", job["error"])
+
+    def test_limits(self):
+        token = guest()["accessToken"]
+        many = b"%PDF-1.4\n" + b"<< /Type /Page >>\n" * (omr_server.MAX_PAGES + 1)
+        status, body = call("POST", "/jobs", many, {"X-Filename": "anthology.pdf"}, token=token)
+        self.assertEqual((status, json.loads(body)["code"]), (413, "too_many_pages"))
+        # Jobs a user has waiting are capped; the queue says how many are ahead.
+        held = threading.Event()
+        original = omr_server.run_audiveris
+        omr_server.run_audiveris = lambda job: held.wait(5)
+        try:
+            ids = [json.loads(call("POST", "/jobs", b"%PDF-1.4 x", {"X-Filename": f"p{i}.pdf"}, token=token)[1])["id"]
+                   for i in range(omr_server.JOBS_PER_USER)]
+            status, body = call("POST", "/jobs", b"%PDF-1.4 x", {"X-Filename": "one-more.pdf"}, token=token)
+            self.assertEqual((status, json.loads(body)["code"]), (429, "too_many_jobs"))
+            last = json.loads(call("GET", f"/jobs/{ids[-1]}", token=token)[1])
+            self.assertEqual((last["status"], last["ahead"]), ("queued", omr_server.JOBS_PER_USER - 2))
+        finally:
+            held.set()
+            omr_server.run_audiveris = original
+            for i in ids:
+                for _ in range(50):
+                    if json.loads(call("GET", f"/jobs/{i}", token=token)[1])["status"] in ("done", "failed"):
+                        break
+                    time.sleep(0.1)
 
     def test_rejects_other_files(self):
         self.assertEqual(call_as("POST", "/jobs", b"x", {"X-Filename": "notes.docx"})[0], 415)

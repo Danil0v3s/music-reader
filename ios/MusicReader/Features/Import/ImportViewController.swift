@@ -99,7 +99,8 @@ final class ImportViewController: UIViewController {
     private func show(_ p: OMRProgress) {
         switch p {
         case .uploading: detail.text = "Uploading…"
-        case .queued: detail.text = "Waiting for the server…"
+        case .queued(let ahead):
+            detail.text = ahead == 0 ? "Next in line…" : "Waiting: \(ahead) scan\(ahead == 1 ? "" : "s") ahead of yours…"
         case .recognising(let s):
             detail.text = "Recognising staves, notes and markings… \(Int(s)) s\nA page usually takes 10–60 seconds."
         case .downloading: detail.text = "Reading the result…"

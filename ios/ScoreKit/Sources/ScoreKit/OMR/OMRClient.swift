@@ -39,6 +39,8 @@ public struct OMRJob: Decodable, Sendable {
     public let error: String?
     public let movements: Int
     public let elapsed: Double
+    /// While queued: how many recognitions will run first.
+    public let ahead: Int?
 }
 
 public enum OMRError: Error, LocalizedError, Equatable {
@@ -62,7 +64,8 @@ public enum OMRError: Error, LocalizedError, Equatable {
 /// Progress of a transcription, for the import screen.
 public enum OMRProgress: Sendable, Equatable {
     case uploading
-    case queued
+    /// Waiting its turn; `ahead` recognitions run first.
+    case queued(ahead: Int)
     case recognising(seconds: Double)
     case downloading
 }
@@ -95,7 +98,7 @@ public final class OMRClient: Sendable {
         var job = try JSONDecoder().decode(OMRJob.self, from: try await send(upload))
         do {
             while job.status == .queued || job.status == .running {
-                progress(job.status == .queued ? .queued : .recognising(seconds: job.elapsed))
+                progress(job.status == .queued ? .queued(ahead: job.ahead ?? 0) : .recognising(seconds: job.elapsed))
                 try await Task.sleep(for: pollInterval)
                 job = try JSONDecoder().decode(OMRJob.self, from: try await send(request("jobs/\(job.id)")))
             }

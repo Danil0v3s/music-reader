@@ -1,0 +1,31 @@
+<p><em>Draft — to be reviewed before publishing. Replace [operator] and [contact address].</em></p>
+
+<p>Music Reader is a practice app for cellists, run by [operator]. This page says what the Music Reader
+server keeps about you, why, and how to remove it.</p>
+
+<h2>What we keep</h2>
+<ul>
+<li><strong>Your account:</strong> your name and email address if you give them; for Sign in with Apple or Google,
+the account identifier those services give us (with Apple's private relay, we never see your real address);
+for email sign-in, your password, stored only as a salted scrypt hash.</li>
+<li><strong>Your library:</strong> the scores you create, import or scan, the original PDFs and photos of imported
+scores, and your collections. They're yours: nobody else sees them unless you share a code for them.</li>
+<li><strong>Your device:</strong> a random identifier the app makes on first launch (we store only a one-way hash of
+it), the app version, and which accounts have used it. We use it to keep free scans to a fair number per device
+and to stop abuse. It isn't used for advertising or tracking.</li>
+<li><strong>Your scans:</strong> for each recognition, when it ran, the file name and type, the number of pages, and
+whether it worked. The uploaded file itself is deleted within a day.</li>
+<li><strong>Sessions:</strong> sign-in tokens (stored as hashes) and when they were last used.</li>
+</ul>
+<p>We don't sell your data, show ads, or use third-party analytics. Account emails (confirming your address,
+resetting your password) are sent through an email provider.</p>
+
+<h2>Deleting your data</h2>
+<p>Delete your account in the app (Settings → Account → Delete Account). That removes your account, scores,
+originals, collections and sessions straight away, and revokes Sign in with Apple. The scan log keeps its
+entries without your account, attached only to the device's hashed identifier, so free scans can't be reset by
+deleting and recreating accounts. Guest accounts unused for a year are deleted automatically. Backups roll over
+within [14] days.</p>
+
+<h2>Contact</h2>
+<p>Questions or requests: [contact address].</p>

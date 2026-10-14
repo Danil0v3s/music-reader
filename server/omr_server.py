@@ -21,6 +21,10 @@ Environment
   AUDIVERIS_CMD         the Audiveris launcher (/opt/audiveris/bin/Audiveris)
   OMR_TIMEOUT           seconds before a transcription is abandoned (900)
   OMR_KEEP_HOURS        finished jobs' files are deleted after this many hours (24)
+  OMR_TRUST_PROXY       1 behind the reverse proxy (Caddy): take the client's address from X-Forwarded-For
+  OMR_WORKERS           recognitions run at the same time (1; each can take up to ~4 GB)
+  OMR_JOBS_PER_USER     recognitions one user can have waiting or running (3)
+  OMR_MAX_PAGES         pages a PDF may have (60)
   OMR_FINGERINGS        1 to also recognise printed fingering digits (0). Off by default: on photos it mistakes
                         small marks (a down-bow) for fingers as often as it finds real ones.
 
@@ -28,6 +32,9 @@ Commands
   python3 omr_server.py                                   run the server
   python3 omr_server.py import-library <email> [folder]   move a library from before accounts (<data>/library)
                                                           into the account that signs in with <email>
+  python3 omr_server.py backup <folder>                   write a consistent backup (database + originals) as
+                                                          <folder>/music-reader-<time>.tar.gz; prints its path
+  python3 omr_server.py restore <archive>                 replace the data with a backup (server stopped)
 """
 
 from __future__ import annotations
@@ -63,6 +70,11 @@ TIMEOUT = int(os.environ.get("OMR_TIMEOUT", "900"))
 KEEP_HOURS = float(os.environ.get("OMR_KEEP_HOURS", "24"))
 FINGERINGS = os.environ.get("OMR_FINGERINGS", "0") == "1"
 MAX_UPLOAD = 60 * 1024 * 1024
+# Capacity: Audiveris takes 1-4 GB and 10-40 s a page, so recognitions run a few at a time (WORKERS), each
+# user can have a few waiting or running (JOBS_PER_USER), and a PDF can't be a whole anthology (MAX_PAGES).
+WORKERS = max(1, int(os.environ.get("OMR_WORKERS", "1")))
+JOBS_PER_USER = int(os.environ.get("OMR_JOBS_PER_USER", "3"))
+MAX_PAGES = int(os.environ.get("OMR_MAX_PAGES", "60"))
 MAX_SCORE = 20 * 1024 * 1024
 ALLOWED = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
@@ -95,6 +107,7 @@ class Job:
             "error": self.error,
             "movements": len(self.movements),
             "elapsed": round(end - (self.started or end), 1),
+            **({"ahead": queue_position(self)} if self.status == "queued" else {}),
             **({"prepared": self.prepared} if self.prepared else {}),
         }
 
@@ -103,6 +116,17 @@ jobs: dict[str, Job] = {}
 jobs_lock = threading.Lock()
 work: "queue.Queue[Job]" = queue.Queue()
 database: Database | None = None
+
+
+def queue_position(job: "Job") -> int:
+    """How many recognitions will run before this one: those queued earlier (running ones are nearly done)."""
+    with jobs_lock:
+        return sum(1 for j in jobs.values() if j.status == "queued" and j.created < job.created)
+
+
+def active_jobs(user_id: str) -> int:
+    with jobs_lock:
+        return sum(1 for j in jobs.values() if j.user_id == user_id and j.status in ("queued", "running"))
 
 
 def count_pages(path: Path) -> int:
@@ -377,12 +401,53 @@ def open_services(data: Path):
     return db, library, acc
 
 
+def backup(folder: Path, data: Path = DATA) -> Path:
+    """A snapshot of everything users stored: the database through SQLite's online backup (consistent while
+    the server runs) and the original PDFs. Recognition jobs are temporary and left out."""
+    import sqlite3
+    import tarfile
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    snapshot = folder / f".db-{stamp}.sqlite3"
+    source = sqlite3.connect(str(data / "music-reader.sqlite3"))
+    target = sqlite3.connect(str(snapshot))
+    with target:
+        source.backup(target)
+    source.close()
+    target.close()
+    archive = folder / f"music-reader-{stamp}.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(snapshot, arcname="music-reader.sqlite3")
+        if (data / "originals").exists():
+            tar.add(data / "originals", arcname="originals")
+    snapshot.unlink()
+    return archive
+
+
+def restore(archive: Path, data: Path = DATA) -> None:
+    """Puts a backup in place: the database and originals are replaced (the old ones kept alongside, renamed)."""
+    import tarfile
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    for name in ("music-reader.sqlite3", "music-reader.sqlite3-wal", "music-reader.sqlite3-shm", "originals"):
+        if (data / name).exists():
+            (data / name).rename(data / f"{name}.before-restore-{stamp}")
+    with tarfile.open(archive) as tar:
+        tar.extractall(data, filter="data")
+
+
 def main() -> None:
     import sys
     global VERSION, database, accounts_service
     # Run as a script this module is __main__; api.py imports it by name and must get this same module
     # (one job queue), not a second copy.
     sys.modules.setdefault("omr_server", sys.modules[__name__])
+    if len(sys.argv) >= 3 and sys.argv[1] == "backup":
+        print(backup(Path(sys.argv[2])))
+        return
+    if len(sys.argv) >= 3 and sys.argv[1] == "restore":
+        restore(Path(sys.argv[2]))
+        print(f"Restored {sys.argv[2]} into {DATA}.")
+        return
     if len(sys.argv) >= 3 and sys.argv[1] == "import-library":
         _, library, acc = open_services(DATA)
         email = sys.argv[2].strip().lower()
@@ -398,7 +463,8 @@ def main() -> None:
     accounts_service = acc
     api.configure(database, library, acc)
     VERSION = audiveris_version()
-    threading.Thread(target=worker, daemon=True).start()
+    for _ in range(WORKERS):
+        threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=janitor, daemon=True).start()
     httpd = ThreadingHTTPServer(("0.0.0.0", PORT), api.Handler)
     print(f"Music Reader server on :{PORT} (Audiveris {VERSION}; sign-in: {', '.join(api.providers())})", flush=True)

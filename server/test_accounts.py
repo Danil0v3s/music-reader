@@ -293,6 +293,30 @@ class DeletionAndDevicesTests(unittest.TestCase):
         self.assertEqual(call("GET", f"/jobs/{body['id']}", token=other)[0], 404, "jobs are private too")
 
 
+class OperationsTests(unittest.TestCase):
+    def test_backup_and_restore(self):
+        t = guest()["accessToken"]
+        sid = "BBBBBBBB-0000-4000-8000-000000000001"
+        put_score(t, sid, "Kept in the backup")
+        call("PUT", f"/library/scores/{sid}/original", b"%PDF-1.4 backed up", token=t)
+        archive = omr_server.backup(TMP / "backups", TMP / "data")
+        self.assertTrue(archive.name.startswith("music-reader-") and archive.name.endswith(".tar.gz"))
+        # Restoring into a fresh data folder brings back the score and its original.
+        fresh = TMP / "restored"
+        fresh.mkdir()
+        omr_server.restore(archive, fresh)
+        db, library, _ = omr_server.open_services(fresh)
+        user = db.one("SELECT user_id FROM scores WHERE id = ?", (sid,))["user_id"]
+        self.assertEqual(json.loads(library.get_score(user, sid))["title"], "Kept in the backup")
+        self.assertEqual(library.get_original(user, sid), b"%PDF-1.4 backed up")
+
+    def test_privacy_and_terms_pages(self):
+        for path in ("/privacy", "/terms"):
+            status, page = call("GET", path)
+            self.assertEqual(status, 200, path)
+            self.assertIn(b"Music Reader", page)
+
+
 class LegacyImportTests(unittest.TestCase):
     def test_import_a_library_from_before_accounts(self):
         folder = TMP / "legacy"

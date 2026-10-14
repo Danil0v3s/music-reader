@@ -4,6 +4,9 @@ Every request may carry X-Device (the app's install id, from its Keychain), X-Pl
 Requests that act for a user carry "Authorization: Bearer <access token>". Errors are JSON:
 {"error": "<message for people>", "code": "<for the app>"}.
 
+Web pages
+  GET    /privacy, /terms                 the privacy policy and terms (server/legal/)
+
 Health
   GET    /health                          -> {status, engine, version, queued, accounts: true, providers: [...]}
 
@@ -39,7 +42,9 @@ The library (library_store.py; writes carry "X-Modified: <unix seconds>")
 
 Recognition (a user's jobs are visible only to them)
   POST   /jobs                            body = the file bytes; header X-Filename: name.pdf  -> 202 {"id": ...}
-  GET    /jobs/<id>                       -> {"id", "status": queued|running|done|failed, "error", "movements", "elapsed", "prepared"}
+  GET    /jobs/<id>                       -> {"id", "status": queued|running|done|failed, "error", "movements", "elapsed", "prepared",
+                                              "ahead": recognitions before it, while queued}
+  (429 when the user already has OMR_JOBS_PER_USER waiting; 413 for a PDF over OMR_MAX_PAGES pages)
   GET    /jobs/<id>/musicxml?movement=N   -> the uncompressed MusicXML of movement N (default 0)
   DELETE /jobs/<id>                       -> 204
 """
@@ -65,6 +70,8 @@ from db import Database
 from idtokens import APPLE, GOOGLE, TokenError, Verifier
 from library_store import LibraryStore, valid_id
 
+TRUST_PROXY = os.environ.get("OMR_TRUST_PROXY", "0") == "1"
+LEGAL = Path(__file__).resolve().parent / "legal"
 db: Database | None = None
 library: LibraryStore | None = None
 accounts: Accounts | None = None
@@ -193,9 +200,10 @@ button{{font:inherit;padding:.6rem 1.2rem;background:#a0522d;color:#fff;border:0
             return None
 
     def client_ip(self) -> str:
-        # Behind the reverse proxy (Caddy), the client's address is in X-Forwarded-For.
-        forwarded = self.headers.get("X-Forwarded-For", "")
-        return forwarded.split(",")[0].strip() if forwarded else self.client_address[0]
+        # Behind the reverse proxy (Caddy) the client's address is in X-Forwarded-For. Only then: otherwise
+        # anyone could send the header and dodge the rate limits.
+        forwarded = self.headers.get("X-Forwarded-For", "") if TRUST_PROXY else ""
+        return forwarded.split(",")[-1].strip() if forwarded else self.client_address[0]
 
     def device(self) -> str | None:
         return accounts.register_device(self.headers.get("X-Device"), self.headers.get("X-Platform", ""),
@@ -222,6 +230,8 @@ button{{font:inherit;padding:.6rem 1.2rem;background:#a0522d;color:#fff;border:0
                 self.send_json(HTTPStatus.OK, {"status": "ok", "engine": "audiveris", "version": omr.VERSION,
                                                "queued": omr.work.qsize(), "accounts": True, "auth": True,
                                                "providers": providers(), "library": True})
+            elif method == "GET" and parts in (["privacy"], ["terms"]):
+                self.send_legal(parts[0])
             elif parts[:1] == ["auth"]:
                 self.auth_route(method, parts[1:], query)
             elif parts[:1] == ["me"]:
@@ -245,6 +255,15 @@ button{{font:inherit;padding:.6rem 1.2rem;background:#a0522d;color:#fff;border:0
     do_POST = lambda self: self.route("POST")  # noqa: E731
     do_PUT = lambda self: self.route("PUT")  # noqa: E731
     do_DELETE = lambda self: self.route("DELETE")  # noqa: E731
+
+    def send_legal(self, name: str) -> None:
+        try:
+            body = (LEGAL / f"{name}.html").read_text()
+        except FileNotFoundError:
+            self.fail(HTTPStatus.NOT_FOUND, "not found", "not_found")
+            return
+        title = "Privacy Policy" if name == "privacy" else "Terms of Use"
+        self.send_page(title, body)
 
     # /auth
 
@@ -437,6 +456,9 @@ button{{font:inherit;padding:.6rem 1.2rem;background:#a0522d;color:#fff;border:0
         if Path(filename).suffix not in omr.ALLOWED:
             self.fail(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, f"send one of {sorted(omr.ALLOWED)}", "file_type")
             return
+        if omr.active_jobs(auth.user_id) >= omr.JOBS_PER_USER:
+            self.fail(HTTPStatus.TOO_MANY_REQUESTS, f"You already have {omr.JOBS_PER_USER} scans waiting. Try again when one finishes.", "too_many_jobs")
+            return
         job = omr.Job(uuid.uuid4().hex, filename, auth.user_id, self.device() or auth.device_id)
         job.dir.mkdir(parents=True, exist_ok=True)
         with open(job.dir / filename, "wb") as f:
@@ -447,6 +469,12 @@ button{{font:inherit;padding:.6rem 1.2rem;background:#a0522d;color:#fff;border:0
                     break
                 f.write(chunk)
                 remaining -= len(chunk)
+        pages = omr.count_pages(job.dir / filename)
+        if pages > omr.MAX_PAGES:
+            shutil.rmtree(job.dir, ignore_errors=True)
+            self.fail(HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                      f"That PDF has {pages} pages; the limit is {omr.MAX_PAGES}. Split it, or send just the pieces you need.", "too_many_pages")
+            return
         omr.log_job(job, create=True)
         with omr.jobs_lock:
             omr.jobs[job.id] = job

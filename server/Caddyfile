@@ -1,0 +1,6 @@
+# HTTPS in front of the Music Reader server: Caddy gets and renews the certificate for OMR_DOMAIN by itself
+# (ports 80 and 443 must reach this machine, and the domain's DNS must point at it).
+{$OMR_DOMAIN} {
+	encode gzip
+	reverse_proxy omr:8765
+}
