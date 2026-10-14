@@ -170,6 +170,15 @@ final class PlaybackTests: XCTestCase {
         XCTAssertEqual(schedule.note(at: 0.1)?.pitches, [Pitch(.d, 3)])
     }
 
+    func testSlurredNotesContinueTheBow() throws {
+        let part = try MusicXMLTests().etude().parts[0]
+        let schedule = PlaybackSchedule.build(part: part)
+        // Bar 1: D3, then F♯3–A3 under a slur. Only A3 continues a stroke; D3 and F♯3 start new ones.
+        let bar1 = schedule.notes.filter { $0.path.measure == 0 }
+        XCTAssertEqual(bar1.map(\.legato), [false, false, true])
+        XCTAssertEqual(bar1[1].sounding, bar1[1].length, accuracy: 1e-9, "a slurred note is held to the next")
+    }
+
     func testHalfSpeed() throws {
         let part = try MusicXMLTests().etude().parts[0]
         let full = PlaybackSchedule.build(part: part).duration

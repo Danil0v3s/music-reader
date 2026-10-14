@@ -16,6 +16,8 @@ public struct ScheduledNote: Hashable, Sendable {
     /// 0…1.
     public let velocity: Double
     public let isGrace: Bool
+    /// Slurred from the previous note: same bow stroke, so no new attack.
+    public var legato: Bool = false
 
     public var end: Double { start + length }
     public var isRest: Bool { pitches.isEmpty }
@@ -69,6 +71,8 @@ public struct PlaybackSchedule: Sendable {
         var wedge: Wedge?
         // A tie's first note absorbs the following notes' lengths.
         var tieHead: Int?
+        // Inside a slur (after its first note): the bow keeps moving.
+        var inSlur = false
 
         for mi in order {
             let measure = part.measures[mi]
@@ -101,7 +105,8 @@ public struct PlaybackSchedule: Sendable {
                         if let accent = measure.items[..<ii].reversed().prefix(while: { $0.note == nil }).compactMap({ item -> Dynamic? in
                             if case .dynamic(let d) = item, d.isAccent { d } else { nil }
                         }).first { v = max(v, accent.velocity) }
-                        let factor = n.articulations.map(\.lengthFactor).min() ?? (n.slurStart || n.slurStop ? 1.0 : 0.92)
+                        let slurred = inSlur || n.slurStart || n.slurStop
+                        let factor = n.articulations.map(\.lengthFactor).min() ?? (slurred ? 1.0 : 0.92)
                         let continuesTie = tieHead.map { notes[$0].pitches == n.pitches } ?? false
                         if continuesTie, let head = tieHead {
                             // Extend the head; this note only marks the timeline.
@@ -113,6 +118,9 @@ public struct PlaybackSchedule: Sendable {
                                                    sounding: continuesTie ? 0 : length * (n.tieToNext ? 1 : factor),
                                                    pitches: n.pitches, frequencies: n.pitches.map { tuning.frequency(of: $0, in: a.key) },
                                                    velocity: min(1, v), isGrace: false))
+                        notes[notes.count - 1].legato = inSlur && !n.isRest
+                        if n.slurStart { inSlur = true }
+                        if n.slurStop { inSlur = false }
                         if n.tieToNext, !n.isRest { if !continuesTie { tieHead = notes.count - 1 } } else { tieHead = nil }
                         // Hairpins move the level note by note.
                         if wedge == .crescendo { velocity = min(1, velocity + 0.03) }
