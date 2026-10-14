@@ -194,6 +194,37 @@ final class PlaybackTests: XCTestCase {
         XCTAssertEqual(PlaybackSchedule.playOrder(part), [0, 1, 2, 0, 1, 2, 3], "no forward repeat: back to the start")
     }
 
+    func testLoopPlaysJustTheChosenBars() throws {
+        let part = try MusicXMLTests().etude().parts[0]
+        let beat = 60.0 / 84
+        // Bar 8 alone: its timeline starts at 0, three beats long, and the G4 tied into bar 9 stops at the barline.
+        let bar8 = PlaybackSchedule.loop(part: part, measures: 7...7)
+        XCTAssertEqual(bar8.duration, 3 * beat, accuracy: 1e-6)
+        XCTAssertEqual(bar8.notes.first?.start, 0)
+        XCTAssertTrue(bar8.notes.allSatisfy { $0.path.measure == 7 })
+        XCTAssertEqual(bar8.beats.count, 3)
+        XCTAssertTrue(bar8.notes.allSatisfy { $0.start + $0.sounding <= bar8.duration + 1e-9 }, "nothing rings past the loop")
+        // Bars 2–4: the same notes as in the whole piece, shifted to start at 0.
+        let whole = PlaybackSchedule.build(part: part)
+        let passage = PlaybackSchedule.loop(part: part, measures: 1...3)
+        let offset = whole.time(ofMeasure: 1)
+        let inWhole = whole.notes.filter { (1...3).contains($0.path.measure) }
+        XCTAssertEqual(passage.notes.map(\.noteId), inWhole.map(\.noteId))
+        XCTAssertEqual(passage.notes.last!.start, inWhole.last!.start - offset, accuracy: 1e-9)
+    }
+
+    func testLoopIgnoresRepeatJumps() {
+        var part = Score.blank(measures: 4).parts[0]
+        part.measures[2].barline = .repeatEnd
+        XCTAssertEqual(PlaybackSchedule.loop(part: part, measures: 1...2).measureStarts.map(\.measure), [1, 2])
+    }
+
+    func testLoopedAudioWrapsTheTail() {
+        // 4 frames of passage, 2 frames of release: the release lands on the start of the next pass.
+        XCTAssertEqual(Synth.looped([1, 1, 1, 1, 0.5, 0.25], length: 4), [1.5, 1.25, 1, 1])
+        XCTAssertEqual(Synth.looped([1, 1], length: 4), [1, 1, 0, 0], "short audio is padded with silence")
+    }
+
     func testPickupBeatsCountFromTheBarline() {
         var part = Score.blank(time: TimeSignature(3, 4), measures: 2).parts[0]
         part.measures[0].isPickup = true

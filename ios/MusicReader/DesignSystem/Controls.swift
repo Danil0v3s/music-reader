@@ -6,16 +6,20 @@ final class TransportBar: UIView {
     var onRewind: (() -> Void)?
     var onTempo: ((Double) -> Void)?
     var onMetronome: ((Bool) -> Void)?
+    var onLoop: (() -> Void)?
 
     var isPlaying = false { didSet { updatePlay() } }
     var isBusy = false { didSet { isBusy ? spinner.startAnimating() : spinner.stopAnimating(); play.isHidden = isBusy } }
     var metronome = false { didSet { updateMetronome() } }
     var tempoText = "" { didSet { tempoButton.configuration?.title = tempoText } }
+    /// The bars playing on repeat ("5–8"), or nil when not looping.
+    var loopText: String? { didSet { updateLoop() } }
 
     private let play = UIButton(type: .system)
     private let rewind = UIButton(type: .system)
     private let tempoButton = UIButton(type: .system)
     private let metronomeButton = UIButton(type: .system)
+    private let loopButton = UIButton(type: .system)
     private let spinner = UIActivityIndicatorView(style: .medium)
     private let scales: [Double] = [0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25]
     private var scale = 1.0
@@ -59,7 +63,9 @@ final class TransportBar: UIView {
             self.onMetronome?(self.metronome)
         }, for: .primaryActionTriggered)
 
-        let row = UIStackView(arrangedSubviews: [rewind, play, spinner, tempoButton, metronomeButton])
+        loopButton.addAction(UIAction { [weak self] _ in self?.onLoop?() }, for: .primaryActionTriggered)
+
+        let row = UIStackView(arrangedSubviews: [rewind, play, spinner, tempoButton, loopButton, metronomeButton])
         row.alignment = .center
         row.spacing = 6
         row.setCustomSpacing(14, after: spinner)
@@ -81,6 +87,7 @@ final class TransportBar: UIView {
         tempoButton.setContentHuggingPriority(.defaultLow, for: .horizontal)
         updatePlay()
         updateMetronome()
+        updateLoop()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -88,6 +95,21 @@ final class TransportBar: UIView {
     private func updatePlay() {
         play.configuration?.image = UIImage(systemName: isPlaying ? "pause.fill" : "play.fill")
         play.accessibilityLabel = isPlaying ? "Pause" : "Play"
+    }
+
+    private func updateLoop() {
+        var c: UIButton.Configuration = loopText == nil ? .plain() : .tinted()
+        c.image = UIImage(systemName: "repeat", withConfiguration: UIImage.SymbolConfiguration(scale: .small))
+        c.title = loopText
+        c.imagePadding = 4
+        c.cornerStyle = .capsule
+        c.baseForegroundColor = loopText == nil ? .label : Theme.accent
+        c.baseBackgroundColor = Theme.accent
+        c.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
+            var a = a; a.font = Fonts.mono(13); return a
+        }
+        loopButton.configuration = c
+        loopButton.accessibilityLabel = loopText.map { "Looping bars \($0). Stop looping" } ?? "Loop bars"
     }
 
     private func updateMetronome() {

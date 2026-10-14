@@ -96,6 +96,9 @@ final class ScoreView: UIView {
     var measureTints: [Int: UIColor] = [:] { didSet { updateTints() } }
 
     var onTap: ((StaffHit?, CGPoint) -> Void)?
+    /// Press and hold on a bar, then drag across others: the bars from the first to the one under the finger.
+    var onSelectBars: ((ClosedRange<Int>, UIGestureRecognizer.State) -> Void)?
+    private var selectionAnchor: Int?
     var onLayout: ((ScoreLayout) -> Void)?
 
     private(set) var layout: ScoreLayout?
@@ -112,6 +115,9 @@ final class ScoreView: UIView {
         caretLayer.isHidden = true
         layer.addSublayer(caretLayer)
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
+        hold.minimumPressDuration = 0.35
+        addGestureRecognizer(hold)
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: ScoreView, _) in view.redrawAll(); view.caretLayer.backgroundColor = Theme.accent.cgColor }
     }
 
@@ -238,6 +244,14 @@ final class ScoreView: UIView {
         let p = g.location(in: self)
         guard let layout, let score else { onTap?(nil, p); return }
         onTap?(layout.hit(p, part: score.parts[partIndex]), p)
+    }
+
+    @objc private func held(_ g: UILongPressGestureRecognizer) {
+        guard let layout, let score, let measure = layout.hit(g.location(in: self), part: score.parts[partIndex])?.measure else { return }
+        if g.state == .began { selectionAnchor = measure }
+        guard let anchor = selectionAnchor else { return }
+        onSelectBars?(min(anchor, measure)...max(anchor, measure), g.state)
+        if g.state == .ended || g.state == .cancelled { selectionAnchor = nil }
     }
 
     /// Renders the score as PDF pages (A4 by default), breaking only between lines of music.

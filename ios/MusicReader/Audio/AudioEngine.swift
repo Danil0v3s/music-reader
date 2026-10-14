@@ -50,6 +50,8 @@ final class ScorePlayer {
     private var generation = 0
     /// Host time the buffers start sounding at; position is measured from it on the host clock.
     private var startHostTime: UInt64 = 0
+    /// Playing a passage on repeat: its length on the timeline, which the position wraps at.
+    private(set) var loopLength: Double?
 
     init() {
         engine.attach(musicNode)
@@ -69,7 +71,9 @@ final class ScorePlayer {
         case .playing:
             let now = mach_absolute_time()
             let elapsed = now > startHostTime ? AVAudioTime.seconds(forHostTime: now - startHostTime) : 0
-            return bufferStart - leadIn + elapsed - outputLatency
+            let t = bufferStart - leadIn + elapsed - outputLatency
+            if let loopLength, t > 0 { return t.truncatingRemainder(dividingBy: loopLength) }
+            return t
         case .paused(let at): return at
         default: return 0
         }
@@ -77,6 +81,16 @@ final class ScorePlayer {
 
     /// Renders and starts playing `schedule` from `start` seconds, with `countInBeats` clicks first.
     func play(_ schedule: PlaybackSchedule, from start: Double = 0, countInBeats: Int = 0, session: AudioSessionMode = .playback) {
+        render(schedule, from: start, countInBeats: countInBeats, loop: false, session: session)
+    }
+
+    /// Plays a passage (a `PlaybackSchedule.loop`) over and over until stopped: the count-in and the
+    /// first pass from `start`, then the whole passage repeating, the last notes ringing into each new pass.
+    func playLoop(_ schedule: PlaybackSchedule, from start: Double = 0, countInBeats: Int = 0) {
+        render(schedule, from: start, countInBeats: countInBeats, loop: true, session: .playback)
+    }
+
+    private func render(_ schedule: PlaybackSchedule, from start: Double, countInBeats: Int, loop: Bool, session: AudioSessionMode) {
         stopNodes()
         generation += 1
         let gen = generation
@@ -94,14 +108,26 @@ final class ScorePlayer {
             let music = bank.map { synth.renderSampled(schedule, bank: $0, from: start, leadIn: leadIn) }
                 ?? synth.renderMusic(schedule, from: start, leadIn: leadIn)
             let clicks = synth.renderClicks(schedule, from: start, countIn: countIn)
+            // The repeating part is the whole passage, rendered from its start.
+            let repeating: (music: [Float], clicks: [Float])? = loop ? {
+                let length = Int((schedule.duration * sr).rounded())
+                let whole = start == 0 && leadIn == 0 ? music
+                    : bank.map { synth.renderSampled(schedule, bank: $0) } ?? synth.renderMusic(schedule)
+                return (Synth.looped(whole, length: length), Synth.looped(synth.renderClicks(schedule), length: length))
+            }() : nil
+            // The first pass stops at the passage's end; what rings on is in the start of the repeating part.
+            let firstLength = Int(((schedule.duration - start + leadIn) * sr).rounded())
+            let (firstMusic, firstClicks) = loop ? (Array(music.prefix(firstLength)), Array(clicks.prefix(firstLength))) : (music, clicks)
             await MainActor.run {
                 guard gen == self.generation else { return }
-                self.start(music: music, clicks: clicks, from: start, leadIn: leadIn)
+                self.start(music: firstMusic, clicks: firstClicks, repeating: repeating, from: start, leadIn: leadIn,
+                           loopLength: loop ? schedule.duration : nil)
             }
         }
     }
 
-    private func start(music: [Float], clicks: [Float], from start: Double, leadIn: Double) {
+    private func start(music: [Float], clicks: [Float], repeating: (music: [Float], clicks: [Float])?, from start: Double,
+                       leadIn: Double, loopLength: Double?) {
         guard let musicBuffer = buffer(music), let clickBuffer = buffer(clicks) else { return }
         do {
             if !engine.isRunning { try engine.start() }
@@ -112,14 +138,23 @@ final class ScorePlayer {
         }
         bufferStart = start
         self.leadIn = leadIn
+        self.loopLength = loopLength
         let gen = generation
-        musicNode.scheduleBuffer(musicBuffer, at: nil, options: []) { [weak self] in
-            Task { @MainActor in
-                guard let self, gen == self.generation, case .playing = self.state.value else { return }
-                self.state.send(.stopped)
+        if let repeating, let loopMusic = buffer(repeating.music), let loopClicks = buffer(repeating.clicks) {
+            // Queued back to back on each node, so the repeats start exactly where the first pass ends.
+            musicNode.scheduleBuffer(musicBuffer, at: nil, options: [])
+            clickNode.scheduleBuffer(clickBuffer, at: nil, options: [])
+            musicNode.scheduleBuffer(loopMusic, at: nil, options: .loops)
+            clickNode.scheduleBuffer(loopClicks, at: nil, options: .loops)
+        } else {
+            musicNode.scheduleBuffer(musicBuffer, at: nil, options: []) { [weak self] in
+                Task { @MainActor in
+                    guard let self, gen == self.generation, case .playing = self.state.value else { return }
+                    self.state.send(.stopped)
+                }
             }
+            clickNode.scheduleBuffer(clickBuffer, at: nil, options: [])
         }
-        clickNode.scheduleBuffer(clickBuffer, at: nil, options: [])
         // Start both a little ahead, at the same host time.
         startHostTime = mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.08)
         let when = AVAudioTime(hostTime: startHostTime)

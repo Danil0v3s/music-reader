@@ -27,7 +27,7 @@ Editor (tap the staff) ───────────────────
 
 ### ScoreKit (ios/ScoreKit)
 
-The music theory is explicit and tested (`swift test`, 51 tests):
+The music theory is explicit and tested (`swift test`, 58 tests):
 
 - **Theory**: spelled pitches (C♯ ≠ D♭: different staff position, accidental and, outside equal temperament,
   frequency), intervals named by quality and number, key signatures with modes and scale degrees, clefs
@@ -45,7 +45,8 @@ The music theory is explicit and tested (`swift test`, 51 tests):
   beat, stem directions, ledger lines, accidentals, ties and slurs across lines, marks stacked above the
   staff) plus hit-testing that maps a tap to a bar, an insertion point and a pitch.
 - **Playback**: the score unrolled into time (repeats, tempo changes, fermatas, ties merged, articulations
-  and dynamics shaping length and loudness), metronome clicks with a count-in, and two voices. The default
+  and dynamics shaping length and loudness), metronome clicks with a count-in, two voices, and any range of
+  bars on its own for looping. The default
   is a **recorded cello**: each note plays its own recording on the natural string, re-pitched to the exact
   target of the chosen tuning (within ~5 ¢), with long notes looped. The fallback is a bowed-string synth.
 - **Intonation**: YIN pitch detection tuned for the cello's range, and per-note assessment (median cents,
@@ -58,7 +59,9 @@ The music theory is explicit and tested (`swift test`, 51 tests):
 - **Library**: scan paper with the camera, choose a photo (framed with a crop step first), import a PDF, image or
   MusicXML, or write a new score. Organise scores into **collections** (a score can be in several; drag to
   reorder). Pull down to sync.
-- **Score**: notation that follows playback; practice tempo (50–125 %); metronome; tap a note to see its
+- **Score**: notation that follows playback; practice tempo (50–125 %); metronome; **loop a passage**
+  (press and hold a bar, drag across the others, and play repeats just those bars, the last note ringing
+  into each new pass; the repeat button turns it off); tap a note to see its
   scale degree, frequency, interval from the previous note, string and fingering; view the original PDF;
   export MusicXML or PDF.
 - **Editor**: tap the staff to enter notes. The palette covers note values, dots, triplets, rests,

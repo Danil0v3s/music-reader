@@ -2,8 +2,8 @@ import Combine
 import ScoreKit
 import UIKit
 
-/// Reading a score: notation, playback that follows along, practice speed and metronome, and, for a
-/// tapped note, what it is in music-theory terms.
+/// Reading a score: notation, playback that follows along, practice speed and metronome, a passage on
+/// repeat (hold a bar and drag across the others), and, for a tapped note, what it is in music-theory terms.
 final class ScoreViewController: UIViewController {
     private var score: Score
     private let library: ScoreLibrary
@@ -20,6 +20,8 @@ final class ScoreViewController: UIViewController {
     private let infoPill = InfoPill()
     private var schedule: PlaybackSchedule?
     private var startMeasure = 0
+    /// Bars playing on repeat.
+    private var loop: ClosedRange<Int>? { didSet { loopChanged() } }
     private var displayLink: CADisplayLink?
     private var bag = Set<AnyCancellable>()
     private var tempoScale = 1.0
@@ -76,12 +78,13 @@ final class ScoreViewController: UIViewController {
         scoreView.staffSpace = settings.value.staffSpace
         scoreView.score = score
         scoreView.onTap = { [weak self] hit, _ in self?.tapped(hit) }
+        scoreView.onSelectBars = { [weak self] range, state in self?.selectingBars(range, state) }
 
         let edit = UIBarButtonItem(title: "Edit", image: UIImage(systemName: "pencil"), primaryAction: UIAction { [weak self] _ in self?.stopPlayback(); self?.onEdit() })
         let practice = UIBarButtonItem(title: "Practice", image: UIImage(systemName: "waveform.badge.mic"), primaryAction: UIAction { [weak self] _ in
             guard let self else { return }
             self.stopPlayback()
-            self.onPractice(self.startMeasure)
+            self.onPractice(self.loop?.lowerBound ?? self.startMeasure)
         })
         moreItem = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: moreMenu())
         navigationItem.rightBarButtonItems = [moreItem, edit, practice]
@@ -90,6 +93,7 @@ final class ScoreViewController: UIViewController {
         transport.onPlay = { [weak self] in self?.togglePlay() }
         transport.onRewind = { [weak self] in self?.rewind() }
         transport.onTempo = { [weak self] scale in self?.setTempo(scale) }
+        transport.onLoop = { [weak self] in self?.loopTapped() }
         transport.onMetronome = { [weak self] on in
             self?.player.metronome = on
             self?.settings.update { $0.metronome = on }
@@ -108,6 +112,7 @@ final class ScoreViewController: UIViewController {
             title = score.title
             scoreView.score = score
             schedule = nil
+            if let loop, loop.upperBound >= score.parts[scoreView.partIndex].measures.count { self.loop = nil }
             transport.tempoText = tempoLabel()
             moreItem.menu = moreMenu()
         }
@@ -121,7 +126,9 @@ final class ScoreViewController: UIViewController {
     // MARK: Playback
 
     private func buildSchedule() -> PlaybackSchedule {
-        let s = PlaybackSchedule.build(part: score.parts[scoreView.partIndex], tuning: settings.value.tuning, tempoScale: tempoScale)
+        let part = score.parts[scoreView.partIndex]
+        let s = loop.map { PlaybackSchedule.loop(part: part, measures: $0, tuning: settings.value.tuning, tempoScale: tempoScale) }
+            ?? PlaybackSchedule.build(part: part, tuning: settings.value.tuning, tempoScale: tempoScale)
         schedule = s
         return s
     }
@@ -131,15 +138,25 @@ final class ScoreViewController: UIViewController {
         case .playing, .rendering:
             player.pause()
         case .paused(let at):
-            player.play(schedule ?? buildSchedule(), from: at)
+            play(from: at, countIn: false)
         case .stopped:
             let s = schedule ?? buildSchedule()
-            player.play(s, from: s.time(ofMeasure: startMeasure), countInBeats: settings.value.countIn && settings.value.metronome ? countInBeats() : 0)
+            play(from: loop == nil ? s.time(ofMeasure: startMeasure) : 0, countIn: true)
+        }
+    }
+
+    private func play(from time: Double, countIn: Bool) {
+        let s = schedule ?? buildSchedule()
+        let beats = countIn && settings.value.countIn && settings.value.metronome ? countInBeats() : 0
+        if loop != nil {
+            player.playLoop(s, from: min(time, max(0, s.duration - 0.05)), countInBeats: beats)
+        } else {
+            player.play(s, from: time, countInBeats: beats)
         }
     }
 
     private func countInBeats() -> Int {
-        score.parts[scoreView.partIndex].attributes(at: startMeasure).time.beatsPerMeasure
+        score.parts[scoreView.partIndex].attributes(at: loop?.lowerBound ?? startMeasure).time.beatsPerMeasure
     }
 
     private func rewind() {
@@ -161,8 +178,8 @@ final class ScoreViewController: UIViewController {
         schedule = nil
         transport.tempoText = tempoLabel()
         if wasPlaying {
-            let s = buildSchedule()
-            player.play(s, from: max(0, position * scale))
+            _ = buildSchedule()
+            play(from: max(0, position * scale), countIn: false)
         } else if case .paused = player.state.value {
             player.stop()
         }
@@ -211,6 +228,64 @@ final class ScoreViewController: UIViewController {
                              scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
             scroll.setContentOffset(CGPoint(x: 0, y: max(-scroll.adjustedContentInset.top, target)), animated: true)
         }
+    }
+
+    // MARK: Looping a passage
+
+    private func selectingBars(_ range: ClosedRange<Int>, _ state: UIGestureRecognizer.State) {
+        switch state {
+        case .began:
+            stopPlayback()
+            infoPill.hide()
+            scroll.panGestureRecognizer.isEnabled = false     // the drag chooses bars instead of scrolling
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            showSelection(range)
+        case .changed:
+            if scoreView.measureTints.count != range.count || scoreView.measureTints[range.lowerBound] == nil {
+                UISelectionFeedbackGenerator().selectionChanged()
+            }
+            showSelection(range)
+        default:
+            scroll.panGestureRecognizer.isEnabled = true
+            loop = range
+            infoPill.show(title: "\(barsText(range)) on repeat", detail: "Press play to practise \(range.count == 1 ? "it" : "them") over and over. Tap the repeat button to stop.")
+        }
+    }
+
+    private func showSelection(_ range: ClosedRange<Int>) {
+        scoreView.measureTints = Dictionary(uniqueKeysWithValues: range.map { ($0, Theme.accent) })
+        transport.loopText = barNumbers(range)
+    }
+
+    private func loopChanged() {
+        schedule = nil
+        stopPlayback()
+        if let loop {
+            showSelection(loop)
+        } else {
+            scoreView.measureTints = [:]
+            transport.loopText = nil
+        }
+    }
+
+    private func loopTapped() {
+        if loop != nil {
+            loop = nil
+            infoPill.show(title: "Loop off", detail: "Playback runs through the whole piece again.", for: 3)
+        } else {
+            infoPill.show(title: "Loop a passage", detail: "Press and hold a bar, then drag across the bars you want to repeat.")
+        }
+    }
+
+    /// "5–8" in the score's own bar numbers.
+    private func barNumbers(_ range: ClosedRange<Int>) -> String {
+        let measures = score.parts[scoreView.partIndex].measures
+        let first = measures[range.lowerBound].number, last = measures[range.upperBound].number
+        return first == last ? "\(first)" : "\(first)–\(last)"
+    }
+
+    private func barsText(_ range: ClosedRange<Int>) -> String {
+        (range.count == 1 ? "Bar " : "Bars ") + barNumbers(range)
     }
 
     // MARK: Tapping notes

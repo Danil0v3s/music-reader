@@ -57,8 +57,9 @@ public struct PlaybackSchedule: Sendable {
     /// - Parameters:
     ///   - tempoScale: practice speed, 0.5 = half tempo.
     ///   - from: measure to start at (earlier measures are skipped, but their tempo and dynamics still apply).
+    ///   - through: last measure to play (inclusive); notes held past it are cut at its barline.
     public static func build(part: Part, tuning: Tuning = .standard, tempoScale: Double = 1, from startMeasure: Int = 0,
-                             expandRepeats: Bool = true) -> PlaybackSchedule {
+                             through endMeasure: Int? = nil, expandRepeats: Bool = true) -> PlaybackSchedule {
         let attrs = part.resolvedAttributes
         let order = expandRepeats ? playOrder(part) : Array(part.measures.indices)
 
@@ -78,7 +79,7 @@ public struct PlaybackSchedule: Sendable {
             let measure = part.measures[mi]
             let a = attrs[mi]
             if let mt = measure.attributes?.tempo { tempo = mt }
-            let counting = mi >= startMeasure
+            let counting = mi >= startMeasure && mi <= (endMeasure ?? .max)
             let measureStart = t
             if counting { starts.append((mi, t)) }
 
@@ -149,7 +150,22 @@ public struct PlaybackSchedule: Sendable {
                 }
             }
         }
+        if endMeasure != nil {
+            notes = notes.map { n in
+                guard n.start + n.sounding > t else { return n }
+                var cut = ScheduledNote(noteId: n.noteId, path: n.path, start: n.start, length: n.length, sounding: max(0, t - n.start),
+                                        pitches: n.pitches, frequencies: n.frequencies, velocity: n.velocity, isGrace: n.isGrace)
+                cut.legato = n.legato
+                return cut
+            }
+        }
         return PlaybackSchedule(notes: notes, beats: beats.filter { $0.time >= 0 }, duration: t, measureStarts: starts)
+    }
+
+    /// Bars `range` on their own, for practising a passage on repeat: written order (no repeat jumps), the
+    /// tempo and dynamics in force where it starts, and its timeline starting at 0.
+    public static func loop(part: Part, measures range: ClosedRange<Int>, tuning: Tuning = .standard, tempoScale: Double = 1) -> PlaybackSchedule {
+        build(part: part, tuning: tuning, tempoScale: tempoScale, from: range.lowerBound, through: range.upperBound, expandRepeats: false)
     }
 
     /// Measure indices in performance order: a backward repeat jumps once to the last forward repeat (or the start).

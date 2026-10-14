@@ -94,6 +94,21 @@ public struct Synth: Sendable {
         return out
     }
 
+    /// Audio for a passage on repeat: exactly `length` frames, with what rings past the end (the last notes'
+    /// release) added onto the start, where it sounds as the next pass begins. Without
+    /// it the loop would cut off the last note or leave a gap.
+    public static func looped(_ samples: [Float], length: Int) -> [Float] {
+        guard length > 0 else { return [] }
+        var out = Array(samples.prefix(length))
+        out += [Float](repeating: 0, count: length - out.count)
+        var i = length
+        while i < samples.count {
+            out[i % length] += samples[i]
+            i += 1
+        }
+        return out
+    }
+
     /// A sustained reference tone (the tuner's drone), about a second long and loopable: it holds a whole
     /// number of cycles, so the loop point is seamless and the pitch is exact.
     public func renderDrone(frequency: Double) -> [Float] {
