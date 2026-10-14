@@ -172,8 +172,9 @@ public final class AccountClient: Sendable {
 
     public func continueAsGuest() async throws -> SignInResult { try await signIn("auth/guest", [:]) }
 
-    public func signInWithApple(identityToken: String, nonce: String, name: String) async throws -> SignInResult {
-        try await signIn("auth/apple", ["identityToken": identityToken, "nonce": nonce, "name": name])
+    /// `authorizationCode` lets the server get a token it can revoke if the account is deleted (App Store rule).
+    public func signInWithApple(identityToken: String, nonce: String, name: String, authorizationCode: String = "") async throws -> SignInResult {
+        try await signIn("auth/apple", ["identityToken": identityToken, "nonce": nonce, "name": name, "authorizationCode": authorizationCode])
     }
 
     public func signInWithGoogle(idToken: String) async throws -> SignInResult {

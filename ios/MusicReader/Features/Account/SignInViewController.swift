@@ -249,7 +249,8 @@ final class SignInViewController: UIViewController {
     private func signInWithApple() {
         run { [self] in
             let credential = try await apple.signIn(from: view.window)
-            try await account.signInWithApple(identityToken: credential.identityToken, nonce: credential.nonce, name: credential.name)
+            try await account.signInWithApple(identityToken: credential.identityToken, authorizationCode: credential.authorizationCode,
+                                              nonce: credential.nonce, name: credential.name)
         }
     }
 

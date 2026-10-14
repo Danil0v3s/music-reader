@@ -94,10 +94,12 @@ def check_new_password(password: str) -> None:
 
 
 class Accounts:
-    def __init__(self, db: Database, library: LibraryStore, public_url: str = "http://localhost:8765"):
+    def __init__(self, db: Database, library: LibraryStore, public_url: str = "http://localhost:8765", apple=None):
         self.db = db
         self.library = library
         self.public_url = public_url.rstrip("/")
+        # apple_tokens.AppleClient: exchanges Sign in with Apple codes and revokes the tokens on deletion.
+        self.apple = apple
 
     # Devices
 
@@ -201,9 +203,11 @@ class Accounts:
         return {**tokens, "user": self.user_json(user), "mergedScores": merged}
 
     def sign_in_with_provider(self, provider: str, claims: Claims, device: str | None, current: Auth | None,
-                              name: str = "") -> dict:
+                              name: str = "", authorization_code: str = "") -> dict:
         """Apple or Google: finds the account for this identity, or creates one (or upgrades the current
-        guest to it)."""
+        guest to it). For Apple, the authorization code is exchanged for a refresh token, kept so it can be
+        revoked when the account is deleted."""
+        refresh = self.apple.exchange_code(authorization_code) if provider == "apple" and self.apple and authorization_code else None
         email = claims.email.lower() if claims.email else None
         display = (name or claims.name or "").strip()
         with self.db.tx() as c:
@@ -224,6 +228,9 @@ class Accounts:
                     user = self._create_user(c, guest=False, email=email, verified=claims.email_verified, name=display)
                 c.execute("INSERT INTO identities (provider, subject, user_id, email, created) VALUES (?, ?, ?, ?, ?)",
                           (provider, claims.subject, user, email, time.time()))
+            if refresh:
+                c.execute("UPDATE identities SET provider_refresh_token = ? WHERE provider = ? AND subject = ?",
+                          (refresh, provider, claims.subject))
         return self._finish_sign_in(user, device, current)
 
     def link_provider(self, auth: Auth, provider: str, claims: Claims) -> dict:
@@ -307,15 +314,19 @@ class Accounts:
         with self.db.tx() as c:
             c.execute("UPDATE identities SET password_hash = ? WHERE provider = 'email' AND subject = ? AND user_id = ?",
                       (hash_password(password), email, user))
-            # The link proves the address: and every existing session ends.
+            # The link proves the address, and every existing session ends.
             c.execute("UPDATE users SET email_verified = 1 WHERE id = ? AND email = ?", (user, email))
             c.execute("DELETE FROM sessions WHERE user_id = ?", (user,))
 
     # Deletion
 
     def delete_user(self, user: str) -> None:
-        """Deletes the account and everything in it. The scan log keeps its rows without the user: the
-        device still used those scans."""
+        """Deletes the account and everything in it, and revokes its Sign in with Apple token. The scan log
+        keeps its rows without the user: the device still used those scans."""
+        if self.apple:
+            for r in self.db.query("SELECT provider_refresh_token FROM identities WHERE user_id = ? AND provider = 'apple' "
+                                   "AND provider_refresh_token IS NOT NULL", (user,)):
+                self.apple.revoke(r["provider_refresh_token"])
         self.library.delete_user(user)
         with self.db.tx() as c:
             c.execute("DELETE FROM users WHERE id = ?", (user,))

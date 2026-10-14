@@ -134,6 +134,10 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX scan_credits_user ON scan_credits(user_id);
     """,
+    # 2: Sign in with Apple's refresh token, revoked with Apple when the account is deleted.
+    """
+    ALTER TABLE identities ADD COLUMN provider_refresh_token TEXT;
+    """,
 ]
 
 

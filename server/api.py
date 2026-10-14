@@ -11,7 +11,7 @@ Signing in (each returns {accessToken, refreshToken, expiresIn, user, mergedScor
 session, they upgrade that guest instead: the method is attached to the guest's account, or, if it
 already belongs to another account, the guest's library moves there.
   POST   /auth/guest                      {}                                   a new guest account for this device
-  POST   /auth/apple                      {identityToken, nonce?, name?}
+  POST   /auth/apple                      {identityToken, nonce?, name?, authorizationCode?}
   POST   /auth/google                     {idToken}
   POST   /auth/email/signup               {email, password, name?}
   POST   /auth/email/signin               {email, password}
@@ -282,7 +282,8 @@ button{{font:inherit;padding:.6rem 1.2rem;background:#a0522d;color:#fff;border:0
         elif kind == "apple":
             claims = apple.verify(str(body.get("identityToken", "")), nonce=body.get("nonce"))
             self.send_json(HTTPStatus.OK, accounts.sign_in_with_provider("apple", claims, self.device(), current,
-                                                                         name=str(body.get("name", ""))))
+                                                                         name=str(body.get("name", "")),
+                                                                         authorization_code=str(body.get("authorizationCode", ""))))
         elif kind == "google":
             claims = google.verify(str(body.get("idToken", "")))
             self.send_json(HTTPStatus.OK, accounts.sign_in_with_provider("google", claims, self.device(), current))

@@ -8,6 +8,7 @@ import UIKit
 final class AppleSignIn: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
     struct Credential {
         let identityToken: String
+        let authorizationCode: String
         let nonce: String
         /// Apple shares the name only the first time someone signs in to the app.
         let name: String
@@ -44,7 +45,8 @@ final class AppleSignIn: NSObject, ASAuthorizationControllerDelegate, ASAuthoriz
                 return
             }
             let name = credential.fullName.map { PersonNameComponentsFormatter().string(from: $0) } ?? ""
-            finish(.success(Credential(identityToken: token, nonce: nonce, name: name)))
+            let code = credential.authorizationCode.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            finish(.success(Credential(identityToken: token, authorizationCode: code, nonce: nonce, name: name)))
         }
     }
 

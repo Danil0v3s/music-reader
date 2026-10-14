@@ -68,8 +68,9 @@ final class AccountStore {
 
     func continueAsGuest() async throws { await complete(try await client().continueAsGuest()) }
 
-    func signInWithApple(identityToken: String, nonce: String, name: String) async throws {
-        await complete(try await client().signInWithApple(identityToken: identityToken, nonce: nonce, name: name))
+    func signInWithApple(identityToken: String, authorizationCode: String, nonce: String, name: String) async throws {
+        await complete(try await client().signInWithApple(identityToken: identityToken, nonce: nonce, name: name,
+                                                          authorizationCode: authorizationCode))
     }
 
     func signInWithGoogle(idToken: String) async throws { await complete(try await client().signInWithGoogle(idToken: idToken)) }

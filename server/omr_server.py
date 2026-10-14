@@ -14,6 +14,8 @@ Environment
   OMR_DATA              data directory: database, originals, recognition jobs (/data)
   OMR_PUBLIC_URL        the address people reach the server at, for links in emails (http://localhost:8765)
   OMR_APPLE_AUDIENCE    Sign in with Apple: the app's bundle id (br.com.firstsoft.musicreader); empty disables
+  OMR_APPLE_TEAM_ID, OMR_APPLE_KEY_ID, OMR_APPLE_PRIVATE_KEY(_FILE)   the Sign in with Apple key, to revoke a
+                        deleted account's Apple sign-in as the App Store requires (see apple_tokens.py)
   OMR_GOOGLE_CLIENT_IDS Google Sign-In: the app's OAuth client id(s), comma-separated; empty disables
   OMR_SMTP_HOST/PORT/USER/PASSWORD, OMR_MAIL_FROM   sending account emails (see mailer.py; without, they're logged)
   AUDIVERIS_CMD         the Audiveris launcher (/opt/audiveris/bin/Audiveris)
@@ -369,7 +371,9 @@ def open_services(data: Path):
     from library_store import LibraryStore
     db = Database(data / "music-reader.sqlite3")
     library = LibraryStore(db, data / "originals")
-    acc = accounts_module.Accounts(db, library, os.environ.get("OMR_PUBLIC_URL", f"http://localhost:{PORT}"))
+    from apple_tokens import AppleClient
+    apple = AppleClient.from_environment(os.environ.get("OMR_APPLE_AUDIENCE", "br.com.firstsoft.musicreader").split(",")[0])
+    acc = accounts_module.Accounts(db, library, os.environ.get("OMR_PUBLIC_URL", f"http://localhost:{PORT}"), apple)
     return db, library, acc
 
 
