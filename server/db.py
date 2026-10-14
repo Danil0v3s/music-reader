@@ -138,6 +138,19 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE identities ADD COLUMN provider_refresh_token TEXT;
     """,
+    # 3: sharing a score or a collection by code.
+    """
+    CREATE TABLE shares (
+        code            TEXT PRIMARY KEY,           -- 8 characters, no look-alikes (shares.ALPHABET)
+        kind            TEXT NOT NULL,              -- 'score' | 'collection'
+        user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        target_id       TEXT NOT NULL,              -- the score's id, or the collection's id in the collections document
+        created         REAL NOT NULL,
+        revoked         REAL,
+        imports         INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX shares_target ON shares(user_id, kind, target_id);
+    """,
 ]
 
 

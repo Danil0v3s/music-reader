@@ -146,6 +146,7 @@ api.google.keys = KeySet("test", fetch=google.jwks)
 # The tests make many accounts from one address; test_accounts checks the limits on their own.
 api.signup_limiter = api.RateLimiter(100000, 1)
 api.auth_limiter = api.RateLimiter(100000, 1)
+api.share_limiter = api.RateLimiter(100000, 1)
 
 
 def call(method, path, body=None, headers=None, token=None, device=None):

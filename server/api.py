@@ -40,6 +40,15 @@ The library (library_store.py; writes carry "X-Modified: <unix seconds>")
   GET    /library/collections             -> the collections JSON document
   PUT    /library/collections             body = collections JSON -> 204
 
+Sharing (shares.py): only the notation is shared, never originals
+  POST   /shares                          {kind: "score"|"collection", id}   -> {code, url, kind, id, title, created, imports}
+  GET    /shares                          -> {"shares": [...]} (mine, still active)
+  DELETE /shares/<code>                   -> 204: the code stops working
+  GET    /s/<code>                        Accept: application/json -> {kind, title, owner, code, score | collection: {name, scores}}
+                                          from a browser: a page with "Open in Music Reader"
+  POST   /s/<code>/import                 -> {scores: [new ids], collection: new id | null}: an editable copy in my library
+  GET    /.well-known/apple-app-site-association   universal links for /s/*
+
 Recognition (a user's jobs are visible only to them)
   POST   /jobs                            body = the file bytes; header X-Filename: name.pdf  -> 202 {"id": ...}
   GET    /jobs/<id>                       -> {"id", "status": queued|running|done|failed, "error", "movements", "elapsed", "prepared",
@@ -69,19 +78,24 @@ from accounts import AccountError, Accounts, Auth
 from db import Database
 from idtokens import APPLE, GOOGLE, TokenError, Verifier
 from library_store import LibraryStore, valid_id
+from shares import Shares, display_code, normalise_code
 
 TRUST_PROXY = os.environ.get("OMR_TRUST_PROXY", "0") == "1"
+# The app, for universal links (https://<domain>/s/<code> opening the app): <team id>.<bundle id>.
+APP_ID = os.environ.get("OMR_APPLE_APP_ID", "4PB4ZFW9XF.br.com.firstsoft.musicreader")
 LEGAL = Path(__file__).resolve().parent / "legal"
 db: Database | None = None
 library: LibraryStore | None = None
 accounts: Accounts | None = None
+shares: Shares | None = None
 apple = Verifier(APPLE, {a for a in os.environ.get("OMR_APPLE_AUDIENCE", "br.com.firstsoft.musicreader").split(",") if a})
 google = Verifier(GOOGLE, {a.strip() for a in os.environ.get("OMR_GOOGLE_CLIENT_IDS", "").split(",") if a.strip()})
 
 
 def configure(database: Database, lib: LibraryStore, acc: Accounts) -> None:
-    global db, library, accounts
+    global db, library, accounts, shares
     db, library, accounts = database, lib, acc
+    shares = Shares(database, lib, acc.public_url)
 
 
 def providers() -> list[str]:
@@ -111,6 +125,8 @@ class RateLimiter:
 # Sign-in attempts and new accounts per IP: generous for a family behind one router, useless for guessing.
 auth_limiter = RateLimiter(30, 600)
 signup_limiter = RateLimiter(10, 3600)
+# Looking up share codes: plenty for people, far too few to guess codes (40 bits).
+share_limiter = RateLimiter(120, 600)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -232,6 +248,13 @@ button{{font:inherit;padding:.6rem 1.2rem;background:#a0522d;color:#fff;border:0
                                                "providers": providers(), "library": True})
             elif method == "GET" and parts in (["privacy"], ["terms"]):
                 self.send_legal(parts[0])
+            elif method == "GET" and parts == [".well-known", "apple-app-site-association"]:
+                self.send_json(HTTPStatus.OK, {"applinks": {"details": [{"appIDs": [APP_ID], "components": [{"/": "/s/*"}]}]}})
+            elif parts[:1] == ["shares"]:
+                if auth := self.require_session():
+                    self.shares_route(method, parts[1:], auth)
+            elif parts[:1] == ["s"] and len(parts) >= 2:
+                self.shared_route(method, parts[1:])
             elif parts[:1] == ["auth"]:
                 self.auth_route(method, parts[1:], query)
             elif parts[:1] == ["me"]:
@@ -374,6 +397,7 @@ button{{font:inherit;padding:.6rem 1.2rem;background:#a0522d;color:#fff;border:0
             body = self.read_body(omr.MAX_SCORE) if modified is not None else None
             if body is not None:
                 library.put_collections(user, body, modified)
+                shares.revoke_missing(user)   # a deleted collection stops being shared
                 self.send_json(HTTPStatus.NO_CONTENT, None)
         elif len(rest) == 2 and rest[0] == "scores":
             if method == "GET":
@@ -388,6 +412,7 @@ button{{font:inherit;padding:.6rem 1.2rem;background:#a0522d;color:#fff;border:0
                 modified = self.modified_header()
                 if modified is not None:
                     library.delete_score(user, rest[1], modified)
+                    shares.revoke_missing(user)
                     self.send_json(HTTPStatus.NO_CONTENT, None)
             else:
                 self.fail(HTTPStatus.METHOD_NOT_ALLOWED, "method not allowed", "method")
@@ -405,6 +430,52 @@ button{{font:inherit;padding:.6rem 1.2rem;background:#a0522d;color:#fff;border:0
                 self.fail(HTTPStatus.METHOD_NOT_ALLOWED, "method not allowed", "method")
         else:
             self.fail(HTTPStatus.NOT_FOUND, "not found", "not_found")
+
+    # /shares (the owner's side)
+
+    def shares_route(self, method: str, rest: list[str], auth: Auth) -> None:
+        if method == "POST" and rest == []:
+            body = self.read_json()
+            if body is not None:
+                self.send_json(HTTPStatus.OK, shares.create(auth.user_id, str(body.get("kind", "")), str(body.get("id", ""))))
+        elif method == "GET" and rest == []:
+            self.send_json(HTTPStatus.OK, {"shares": shares.mine(auth.user_id)})
+        elif method == "DELETE" and len(rest) == 1:
+            shares.revoke(auth.user_id, rest[0])
+            self.send_json(HTTPStatus.NO_CONTENT, None)
+        else:
+            self.fail(HTTPStatus.NOT_FOUND, "not found", "not_found")
+
+    # /s/<code> (anyone with the code)
+
+    def shared_route(self, method: str, rest: list[str]) -> None:
+        if not share_limiter.allow(self.client_ip()):
+            self.fail(HTTPStatus.TOO_MANY_REQUESTS, "Too many codes tried. Wait a few minutes.", "rate_limited")
+            return
+        code = normalise_code(rest[0])
+        wants_json = "application/json" in self.headers.get("Accept", "")
+        if method == "GET" and len(rest) == 1 and not wants_json:
+            self.send_share_page(code)
+        elif method == "GET" and len(rest) == 1:
+            if self.require_session():
+                self.send_json(HTTPStatus.OK, shares.open(code))
+        elif method == "POST" and rest[1:] == ["import"]:
+            if auth := self.require_session():
+                self.send_json(HTTPStatus.OK, shares.import_to(code, auth.user_id))
+        else:
+            self.fail(HTTPStatus.NOT_FOUND, "not found", "not_found")
+
+    def send_share_page(self, code: str) -> None:
+        """What a shared link shows in a browser: what it is, and a button that opens the app on it."""
+        try:
+            info = shares.summary(code)
+        except AccountError as e:
+            self.send_page("Code not found", f"<p>{html.escape(str(e))}</p>", 404)
+            return
+        what = "a score" if info["kind"] == "score" else "a collection"
+        self.send_page(info["title"] or "Shared music", f"""<p>{html.escape(info["owner"])} shared {what} with you on Music Reader.</p>
+<p><a href="musicreader://share/{html.escape(code)}"><button>Open in Music Reader</button></a></p>
+<p>Or open Music Reader, tap <strong>+</strong> → <strong>Open Shared Code</strong>, and enter <strong>{html.escape(display_code(code))}</strong>.</p>""")
 
     # /jobs
 

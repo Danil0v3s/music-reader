@@ -194,6 +194,8 @@ class Accounts:
         if current and current.is_guest and current.user_id != user:
             merged = self.library.move_all(current.user_id, user, time.time())
             with self.db.tx() as c:
+                # The guest's shares keep working: their scores and collections moved with the same ids.
+                c.execute("UPDATE shares SET user_id = ? WHERE user_id = ?", (user, current.user_id))
                 c.execute("DELETE FROM users WHERE id = ?", (current.user_id,))
         elif current and current.user_id == user:
             with self.db.tx() as c:
