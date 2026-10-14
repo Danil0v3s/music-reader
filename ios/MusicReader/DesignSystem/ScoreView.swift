@@ -25,18 +25,28 @@ enum ScoreRenderer {
                 ctx.fillPath()
             case .curve(let from, let to, let height, let thickness, let owner):
                 // A crescent: outer curve out, inner curve back, thicker in the middle.
+                // The arch clears the higher end (or the lower, for a curve below), so a slur between notes far
+                // apart in pitch bows over them instead of hooking at the low end.
                 let dx = to.x - from.x
-                let c1 = CGPoint(x: from.x + dx * 0.25, y: from.y + height * 1.33)
-                let c2 = CGPoint(x: from.x + dx * 0.75, y: to.y + height * 1.33)
+                let edge = height < 0 ? min(from.y, to.y) : max(from.y, to.y)
+                let lift = height * 1.33
+                let c1 = CGPoint(x: from.x + dx * 0.25, y: (from.y + edge) / 2 + lift)
+                let c2 = CGPoint(x: from.x + dx * 0.75, y: (to.y + edge) / 2 + lift)
                 let inner = height - (height < 0 ? -thickness : thickness)
-                let i1 = CGPoint(x: from.x + dx * 0.75, y: to.y + inner * 1.33)
-                let i2 = CGPoint(x: from.x + dx * 0.25, y: from.y + inner * 1.33)
+                let i1 = CGPoint(x: c2.x, y: (to.y + edge) / 2 + inner * 1.33)
+                let i2 = CGPoint(x: c1.x, y: (from.y + edge) / 2 + inner * 1.33)
                 ctx.setFillColor(color(owner).cgColor)
                 ctx.move(to: from)
                 ctx.addCurve(to: to, control1: c1, control2: c2)
                 ctx.addCurve(to: from, control1: i1, control2: i2)
                 ctx.fillPath()
-            case .text(let text, let at, let size, let style, let anchor):
+            case .text(let text, let at, var size, let style, let anchor):
+                // A long title shrinks to fit between the margins (it's centred on the page).
+                if style == .title, anchor == .center {
+                    let width = NSAttributedString(string: text, attributes: [.font: Fonts.serif(size, weight: .semibold)]).size().width
+                    let room = max(40, at.x * 2 - size * 1.2)
+                    if width > room { size *= room / width }
+                }
                 let font: UIFont = switch style {
                 case .regular: Fonts.serif(size)
                 case .bold: Fonts.serif(size, weight: .bold)
