@@ -31,9 +31,15 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         if let url = connectionOptions.urlContexts.first?.url { coordinator.importFile(url) }
     }
 
-    /// Coming back to the app picks up changes made on other devices.
+    /// Coming back to the app picks up changes made on other devices. While the app is in front the screen
+    /// stays on: both hands are on the cello, so nobody can tap it awake mid-piece.
     func sceneDidBecomeActive(_ scene: UIScene) {
+        UIApplication.shared.isIdleTimerDisabled = true
         dependencies?.sync.syncNow()
+    }
+
+    func sceneWillResignActive(_ scene: UIScene) {
+        UIApplication.shared.isIdleTimerDisabled = false
     }
 
     func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
