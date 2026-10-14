@@ -322,7 +322,7 @@ final class OMRConfigTests: XCTestCase {
         XCTAssertEqual(OMRServerConfig.parse("omr.local:9000")?.baseURL.absoluteString, "http://omr.local:9000")
         XCTAssertEqual(OMRServerConfig.parse("https://omr.example.com/")?.baseURL.absoluteString, "https://omr.example.com")
         XCTAssertNil(OMRServerConfig.parse("  "))
-        XCTAssertNil(OMRServerConfig.parse("token", token: "")?.token)
+        XCTAssertEqual(OMRServerConfig.parse("omr.local", device: DeviceInfo(installID: "x"))?.device?.installID, "x")
     }
 }
 

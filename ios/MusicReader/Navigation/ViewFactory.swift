@@ -57,6 +57,14 @@ final class ViewFactory {
     func tuner() -> TunerViewController { TunerViewController(settings: d.settings) }
 
     func settings() -> SettingsViewController {
-        SettingsViewController(settings: d.settings, library: d.library, sync: d.sync, sample: { [weak self] in self?.d.sampleScore() })
+        let c = coordinator
+        return SettingsViewController(settings: d.settings, library: d.library, sync: d.sync, account: d.account,
+                                      sample: { [weak self] in self?.d.sampleScore() },
+                                      onSignIn: { c?.signIn(upgrade: true) }, onSignOut: { c?.signOut() },
+                                      onDeleteAccount: { c?.deleteAccount() })
+    }
+
+    func signIn(mode: SignInViewController.Mode, onDone: @escaping () -> Void) -> SignInViewController {
+        SignInViewController(mode: mode, account: d.account, settings: d.settings, onDone: onDone)
     }
 }

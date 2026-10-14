@@ -16,25 +16,37 @@ final class SyncService {
     let status = CurrentValueSubject<Status, Never>(.off)
     private let library: ScoreLibrary
     private let settings: SettingsStore
+    private let account: AccountStore
     private var running: Task<Void, Never>?
     private var pending = false
     private var debounce: Task<Void, Never>?
     private var bag = Set<AnyCancellable>()
+    /// Forgets when it last synced (signing out: the next account starts fresh).
+    func reset() {
+        debounce?.cancel()
+        lastSynced = nil
+        refreshStatus()
+    }
+
     private var lastSynced: Date? {
         get { UserDefaults.standard.object(forKey: "lastSynced") as? Date }
         set { UserDefaults.standard.set(newValue, forKey: "lastSynced") }
     }
 
-    init(library: ScoreLibrary, settings: SettingsStore) {
+    init(library: ScoreLibrary, settings: SettingsStore, account: AccountStore) {
         self.library = library
         self.settings = settings
+        self.account = account
         library.localChanges.receive(on: DispatchQueue.main).sink { [weak self] in self?.scheduleSoon() }.store(in: &bag)
         settings.settings.map { ($0.syncLibrary, $0.serverAddress) }.removeDuplicates { $0 == $1 }.dropFirst()
+            .receive(on: DispatchQueue.main).sink { [weak self] _ in self?.syncNow() }.store(in: &bag)
+        // Signing in (or switching accounts) syncs straight away.
+        account.state.map(\.user?.id).removeDuplicates().dropFirst()
             .receive(on: DispatchQueue.main).sink { [weak self] _ in self?.syncNow() }.store(in: &bag)
         refreshStatus()
     }
 
-    private var enabled: Bool { settings.value.syncLibrary && settings.omrConfig != nil }
+    private var enabled: Bool { settings.value.syncLibrary && account.user != nil && account.config != nil }
 
     private func refreshStatus() {
         if !enabled { status.send(.off) } else if status.value == .off { status.send(.idle(lastSynced: lastSynced)) }
@@ -54,13 +66,13 @@ final class SyncService {
     @discardableResult
     func syncNow() -> Task<Void, Never>? {
         refreshStatus()
-        guard enabled, let config = settings.omrConfig else { return nil }
+        guard enabled, let config = account.config else { return nil }
         if running != nil {
             pending = true
             return running
         }
         status.send(.syncing)
-        let sync = LibrarySync(library: library, server: LibraryServer(config: config))
+        let sync = LibrarySync(library: library, server: LibraryServer(config: config, auth: account.vault))
         let task = Task { [weak self] in
             let result: Result<SyncReport, Error>
             do { result = .success(try await sync.run()) } catch { result = .failure(error) }

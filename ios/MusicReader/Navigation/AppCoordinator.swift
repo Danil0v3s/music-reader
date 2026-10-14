@@ -1,3 +1,4 @@
+import Combine
 import PhotosUI
 import ScoreKit
 import UIKit
@@ -19,6 +20,9 @@ protocol Coordinator: AnyObject {
     func importFile(_ url: URL)
     func showOriginal(_ id: UUID)
     func showServerSettings()
+    func signIn(upgrade: Bool)
+    func signOut()
+    func deleteAccount()
     func share(_ items: [Any], from source: UIBarButtonItem?)
     func pop()
 }
@@ -50,9 +54,61 @@ final class AppCoordinator: NSObject, Coordinator {
         tunerNav.tabBarItem = UITabBarItem(title: "Tuner", image: UIImage(systemName: "tuningfork"), tag: 1)
         settingsNav.tabBarItem = UITabBarItem(title: "Settings", image: UIImage(systemName: "gearshape"), tag: 2)
         root.setViewControllers([libraryNav, tunerNav, settingsNav], animated: false)
+        // Nobody signed in (first launch, or the session ended): the sign-in screen, over everything.
+        dependencies.account.state.map { $0 == .signedOut }.removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] signedOut in if signedOut { self?.showWelcome() } }.store(in: &bag)
         #if DEBUG
         DevLaunch.run(coordinator: self, dependencies: dependencies)
         #endif
+    }
+
+    private var bag = Set<AnyCancellable>()
+
+    private func showWelcome() {
+        guard !(top is SignInViewController) else { return }
+        let vc = factory.signIn(mode: .welcome) { [weak self] in self?.root.dismiss(animated: true) }
+        vc.modalPresentationStyle = .fullScreen
+        // On launch the window may not be on screen yet: present on the next turn of the run loop.
+        DispatchQueue.main.async { self.dismissAll { self.root.present(vc, animated: false) } }
+    }
+
+    func signIn(upgrade: Bool) {
+        let nav = UINavigationController(rootViewController: factory.signIn(mode: upgrade ? .upgrade : .welcome) { [weak self] in
+            self?.top.dismiss(animated: true)
+        })
+        top.present(nav, animated: true)
+    }
+
+    func signOut() {
+        Task { @MainActor in
+            if await dependencies.signOut() { return }
+            let a = UIAlertController(title: "Some Changes Haven't Synced",
+                                      message: "Signing out now removes them from this iPhone. Connect to the server and try again to keep them.",
+                                      preferredStyle: .alert)
+            a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            a.addAction(UIAlertAction(title: "Sign Out Anyway", style: .destructive) { _ in
+                Task { @MainActor in _ = await self.dependencies.signOut(force: true) }
+            })
+            top.present(a, animated: true)
+        }
+    }
+
+    func deleteAccount() {
+        let a = UIAlertController(title: "Delete Your Account?",
+                                  message: "This deletes your account and every score, original and collection in it, on the server and on this iPhone. It can't be undone.",
+                                  preferredStyle: .alert)
+        a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        a.addAction(UIAlertAction(title: "Delete Account", style: .destructive) { _ in
+            Task { @MainActor in
+                do {
+                    try await self.dependencies.account.deleteAccount()
+                    self.dependencies.accountDeleted()
+                } catch {
+                    self.alert("Couldn't Delete the Account", error.localizedDescription)
+                }
+            }
+        })
+        top.present(a, animated: true)
     }
 
     func selectTab(_ index: Int) { root.selectedIndex = index }
@@ -179,8 +235,8 @@ final class AppCoordinator: NSObject, Coordinator {
 
     private func recognise(_ data: Data, filename: String, keepOriginal: Bool) {
         guard let client = dependencies.omrClient() else {
-            let a = UIAlertController(title: "Set up the recognition server",
-                                      message: "Reading sheet music from a PDF or photo uses your Audiveris server. Add its address in Settings.",
+            let a = UIAlertController(title: "Set up the server",
+                                      message: "Reading sheet music from a PDF or photo uses the Music Reader server. Add its address in Settings and sign in.",
                                       preferredStyle: .alert)
             a.addAction(UIAlertAction(title: "Not Now", style: .cancel))
             a.addAction(UIAlertAction(title: "Settings", style: .default) { _ in self.showServerSettings() })

@@ -9,6 +9,7 @@ final class AppDependencies {
     let settings: SettingsStore
     let player: ScorePlayer
     let sync: SyncService
+    let account: AccountStore
     /// `shared/` (Bravura, sample scores; the same files Android bundles) is a folder resource.
     let shared: URL
     private var bag = Set<AnyCancellable>()
@@ -18,7 +19,8 @@ final class AppDependencies {
         library = ScoreLibrary(directory: documents.appendingPathComponent("Scores", isDirectory: true))
         settings = SettingsStore()
         player = ScorePlayer()
-        sync = SyncService(library: library, settings: settings)
+        account = AccountStore(settings: settings)
+        sync = SyncService(library: library, settings: settings, account: account)
         shared = Bundle.main.url(forResource: "shared", withExtension: nil) ?? Bundle.main.bundleURL
         seedSampleIfFirstLaunch()
         loadCelloSamples()
@@ -37,7 +39,26 @@ final class AppDependencies {
     }
 
     func omrClient() -> OMRClient? {
-        settings.omrConfig.map { OMRClient(config: $0) }
+        guard account.user != nil else { return nil }
+        return account.config.map { OMRClient(config: $0, auth: account.vault) }
+    }
+
+    /// Signs out: syncs what hasn't reached the server yet, ends the session, and clears this device's
+    /// library (it's the account's, and stays on the server). Returns false, without signing out, when
+    /// unsynced changes couldn't be uploaded and `force` isn't set.
+    func signOut(force: Bool = false) async -> Bool {
+        await sync.syncNow()?.value
+        if case .failed = sync.status.value, !force { return false }
+        await account.signOut()
+        library.eraseAll()
+        sync.reset()
+        return true
+    }
+
+    /// After the account is deleted on the server, nothing of it stays here either.
+    func accountDeleted() {
+        library.eraseAll()
+        sync.reset()
     }
 
     /// The bundled étude, so a first launch has something to read, play and practise. It has a fixed id, so

@@ -3,7 +3,7 @@ import Foundation
 import ScoreKit
 import Security
 
-/// User preferences. Everything is in UserDefaults except the server token, which goes in the Keychain.
+/// User preferences, in UserDefaults. (The session is in the Keychain: see AccountStore.)
 struct AppSettings: Codable, Equatable {
     var serverAddress: String = ""
     var tuning = Tuning.standard
@@ -39,7 +39,6 @@ final class SettingsStore {
     let settings: CurrentValueSubject<AppSettings, Never>
     private let defaults: UserDefaults
     private let key = "settings.v1"
-    private let keychainAccount = "omr-token"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -57,13 +56,8 @@ final class SettingsStore {
         settings.send(s)
     }
 
-    var token: String? {
-        get { Keychain.read(account: keychainAccount) }
-        set { Keychain.write(newValue, account: keychainAccount) }
-    }
-
-    /// The recognition server, or nil when none is configured.
-    var omrConfig: OMRServerConfig? { OMRServerConfig.parse(value.serverAddress, token: token) }
+    /// The server's address is set (sign-in, sync and recognition all need it).
+    var hasServer: Bool { OMRServerConfig.parse(value.serverAddress) != nil }
 }
 
 enum Keychain {
@@ -77,14 +71,14 @@ enum Keychain {
         return String(data: data, encoding: .utf8)
     }
 
-    static func write(_ value: String?, account: String) {
+    static func write(_ value: String?, account: String, thisDeviceOnly: Bool = false) {
         let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                    kSecAttrAccount as String: account]
         SecItemDelete(base as CFDictionary)
         guard let value, !value.isEmpty else { return }
         var add = base
         add[kSecValueData as String] = Data(value.utf8)
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        add[kSecAttrAccessible as String] = thisDeviceOnly ? kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly : kSecAttrAccessibleAfterFirstUnlock
         SecItemAdd(add as CFDictionary, nil)
     }
 }

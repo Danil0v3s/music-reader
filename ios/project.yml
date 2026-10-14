@@ -36,10 +36,17 @@ targets:
     dependencies:
       - package: ScoreKit
         product: ScoreKit
+    entitlements:
+      path: MusicReader/MusicReader.entitlements
+      properties:
+        com.apple.developer.applesignin: [Default]
     info:
       path: MusicReader/Info.plist
       properties:
         CFBundleDisplayName: Music Reader
+        # Google Sign-In: the iOS OAuth client id from Google Cloud ("….apps.googleusercontent.com").
+        # Empty: the Google button isn't shown.
+        GoogleClientID: ""
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen:
@@ -58,7 +65,7 @@ targets:
         UIBackgroundModes: [audio]
         NSMicrophoneUsageDescription: Music Reader listens to your playing to check intonation and to tune.
         NSCameraUsageDescription: Music Reader scans paper sheet music with the camera.
-        # The recognition server is self-hosted and user-entered, usually on the LAN over plain HTTP.
+        # The server is self-hosted and user-entered, often on the LAN over plain HTTP (until it's on a public HTTPS address).
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true

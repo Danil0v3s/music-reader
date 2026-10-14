@@ -166,6 +166,18 @@ public final class ScoreLibrary: @unchecked Sendable {
         if origin == .local { localChanges.send() }
     }
 
+    /// Removes everything from this device: scores, originals, collections and tombstones (signing out; the
+    /// account's library stays on the server). Not a deletion: nothing is synced from it.
+    public func eraseAll() {
+        queue.sync {
+            let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+            for file in files { try? FileManager.default.removeItem(at: file) }
+        }
+        tombstones = [:]
+        summaries.send([])
+        collections.send(CollectionsDocument())
+    }
+
     public func duplicate(_ id: UUID) throws -> Score {
         var copy = try load(id)
         copy.id = UUID()

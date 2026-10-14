@@ -31,8 +31,8 @@ public struct RemoteListing: Decodable, Sendable {
 public final class LibraryServer: Sendable {
     private let http: ServerHTTP
 
-    public init(config: OMRServerConfig, session: URLSession = .shared) {
-        http = ServerHTTP(config: config, session: session)
+    public init(config: OMRServerConfig, auth: (any SessionProvider)? = nil, session: URLSession = .shared) {
+        http = ServerHTTP(config: config, session: session, auth: auth)
     }
 
     public func listing() async throws -> RemoteListing {
@@ -69,41 +69,6 @@ public final class LibraryServer: Sendable {
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         r.httpBody = data
         _ = try await http.send(r)
-    }
-}
-
-/// Request building and error mapping shared by the server clients.
-struct ServerHTTP: Sendable {
-    let config: OMRServerConfig
-    let session: URLSession
-
-    func request(_ path: String, method: String = "GET", modified: Date? = nil) -> URLRequest {
-        var r = URLRequest(url: config.baseURL.appendingPathComponent(path))
-        r.httpMethod = method
-        r.timeoutInterval = 60
-        if let token = config.token { r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        if let modified { r.setValue(String(format: "%.3f", modified.timeIntervalSince1970), forHTTPHeaderField: "X-Modified") }
-        return r
-    }
-
-    func send(_ request: URLRequest) async throws -> Data {
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch is CancellationError {
-            throw OMRError.cancelled
-        } catch {
-            throw OMRError.unreachable(error.localizedDescription)
-        }
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        switch status {
-        case 200..<300: return data
-        case 401: throw OMRError.unauthorised
-        default:
-            let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
-            throw OMRError.rejected(message ?? "HTTP \(status)")
-        }
     }
 }
 
