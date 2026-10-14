@@ -6,9 +6,10 @@ note, hear it at any tempo, and check your intonation against it with the microp
 - `ios/`: the iOS app. Programmatic UIKit (Coordinator + ViewFactory + AppDependencies), XcodeGen
   (`project.yml`), and a local Swift package `ScoreKit` holding everything that isn't UI. Same structure as
   `tesla-mate-viewer`.
-- `server/`: your own server, packaged as a `linux/amd64` Docker image. It reads sheet music with
-  [Audiveris](https://github.com/Audiveris/audiveris) (optical music recognition) and keeps your library:
-  scores, their original PDFs and collections, synced across devices. See [server/README.md](server/README.md).
+- `server/`: the server, packaged as a `linux/amd64` Docker image. It hosts many users (Sign in with Apple,
+  Google, email, or as a guest), keeps each one's private library (scores, original PDFs, collections) in
+  step across their devices, lets them share scores and collections by code, and reads sheet music with
+  [Audiveris](https://github.com/Audiveris/audiveris). See [server/README.md](server/README.md).
 - `shared/`: files both apps bundle: the Bravura music font (SMuFL, SIL OFL), sample scores, and the recorded
   cello (`sounds/cello`: about 90 bowed notes from the University of Iowa Musical Instrument Samples, free to
   use without restrictions, built by `tools/SampleBuilder`).
@@ -27,7 +28,7 @@ Editor (tap the staff) ───────────────────
 
 ### ScoreKit (ios/ScoreKit)
 
-The music theory is explicit and tested (`swift test`, 58 tests):
+The music theory is explicit and tested (`swift test`, 65 tests):
 
 - **Theory**: spelled pitches (C♯ ≠ D♭: different staff position, accidental and, outside equal temperament,
   frequency), intervals named by quality and number, key signatures with modes and scale degrees, clefs
@@ -51,11 +52,14 @@ The music theory is explicit and tested (`swift test`, 58 tests):
   target of the chosen tuning (within ~5 ¢), with long notes looped. The fallback is a bowed-string synth.
 - **Intonation**: YIN pitch detection tuned for the cello's range, and per-note assessment (median cents,
   steadiness, wrong-note detection, an overall sharp or flat tendency).
-- **OMR client** for the server, **storage** (JSON per score, plus the original PDF for comparison),
-  **collections**, and **library sync** with the server.
+- **Server clients**: recognition, **accounts** (sessions renewed automatically), **sharing**, and
+  **library sync**; **storage** (JSON per score, plus the original PDF for comparison) and **collections**.
 
 ### The app (ios/MusicReader)
 
+- **Signing in**: Sign in with Apple, Google (when configured), email and password, or continue as a guest and
+  sign in later without losing anything. Settings → Account shows who's signed in, signs out (the device's
+  copy of the library is cleared; it stays on the server) and deletes the account.
 - **Library**: scan paper with the camera, choose a photo (framed with a crop step first), import a PDF, image or
   MusicXML, or write a new score. Organise scores into **collections** (a score can be in several; drag to
   reorder). Pull down to sync.
@@ -71,12 +75,17 @@ The music theory is explicit and tested (`swift test`, 58 tests):
 - **Practice**: *Follow me* waits for each note to be played in tune; *With metronome* judges each note in time.
   Notes turn green, amber or red, and a summary says what to work on.
 - **Tuner**: strings judged against pure fifths, with a reference drone per string.
-- **Settings**: server address and token, library sync (on by default when a server is set), reference A,
-  tuning system, intonation tolerance.
+- **Sharing**: a score's … → Share (or a collection's Share) makes a code like ABCD-EFGH and a link to send.
+  Whoever opens it (+ → Open Shared Code, or the link) sees the music read-only, can play and loop it, and can
+  import their own editable copy. Only notation is shared, never the original scan. Settings → Shared by Me
+  lists codes and stops them.
+- **Settings**: account, server address, library sync (on by default), reference A, tuning system,
+  intonation tolerance, playback.
 
 ### Library sync
 
-With a server configured, the library lives on it, and every device keeps a full local copy. It syncs at
+Signed in, your library lives on the server in your account, and every device you sign in on keeps a full
+local copy. It syncs at
 launch, when the app comes back to the foreground, a few seconds after any edit, and on pull-to-refresh.
 Each score syncs on its own and the newest change wins, compared to the millisecond. A deletion is a change
 too: each side keeps a tombstone, so a score deleted on one device is removed from the others rather than
