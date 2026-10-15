@@ -36,7 +36,7 @@ final class ShareCodeViewController: UIViewController {
 
         let heading = UILabel()
         heading.text = name
-        heading.font = Fonts.serif(22, weight: .semibold)
+        heading.font = Fonts.display(24)
         heading.numberOfLines = 2
         heading.textAlignment = .center
         codeLabel.font = Fonts.mono(40, weight: .semibold)

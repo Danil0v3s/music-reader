@@ -43,7 +43,7 @@ enum ScoreRenderer {
             case .text(let text, let at, var size, let style, let anchor):
                 // A long title shrinks to fit between the margins (it's centred on the page).
                 if style == .title, anchor == .center {
-                    let width = NSAttributedString(string: text, attributes: [.font: Fonts.serif(size, weight: .semibold)]).size().width
+                    let width = NSAttributedString(string: text, attributes: [.font: Fonts.display(size)]).size().width
                     let room = max(40, at.x * 2 - size * 1.2)
                     if width > room { size *= room / width }
                 }
@@ -51,7 +51,7 @@ enum ScoreRenderer {
                 case .regular: Fonts.serif(size)
                 case .bold: Fonts.serif(size, weight: .bold)
                 case .italic: Fonts.serif(size, italic: true)
-                case .title: Fonts.serif(size, weight: .semibold)
+                case .title: Fonts.display(size)
                 }
                 // Stacked lines (fingerings of a chord) grow upwards, the first line lowest.
                 for (i, line) in text.split(separator: "\n").enumerated() {

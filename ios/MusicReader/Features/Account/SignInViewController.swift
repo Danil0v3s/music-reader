@@ -75,17 +75,27 @@ final class SignInViewController: UIViewController {
     // MARK: Layout
 
     private func build() {
+        if mode == .welcome {
+            let strings = StringsView()
+            stack.addArrangedSubview(strings)
+            stack.setCustomSpacing(28, after: strings)
+        }
         let heading = UILabel()
-        heading.font = Fonts.serif(mode == .welcome ? 34 : 26, weight: .semibold)
-        heading.text = mode == .welcome ? "Music Reader" : "Sign in to keep your library"
+        let headingText = mode == .welcome ? "Music Reader" : "Sign in to keep your library"
+        let title = NSMutableAttributedString(string: headingText, attributes: [
+            .font: Fonts.display(mode == .welcome ? 48 : 28, relativeTo: .largeTitle), .foregroundColor: Theme.ink, .kern: -0.8])
+        title.append(NSAttributedString(string: ".", attributes: [.font: Fonts.display(mode == .welcome ? 48 : 28, relativeTo: .largeTitle), .foregroundColor: Theme.accent]))
+        heading.attributedText = title
+        heading.adjustsFontForContentSizeCategory = true
         heading.numberOfLines = 0
         let lead = label(mode == .welcome
-            ? "Read, play and practise your sheet music. Sign in to keep your scores on all your devices."
+            ? "Read it. Hear it. Play it in tune. Sign in to keep your scores on all your devices."
             : "Your scores move into the account you sign in to, and you'll find them on every device you sign in on.",
-            style: .body, color: .secondaryLabel)
+            style: .body, color: Theme.inkSoft)
+        lead.font = Fonts.ui(17, relativeTo: .body)
         stack.addArrangedSubview(heading)
         stack.addArrangedSubview(lead)
-        stack.setCustomSpacing(24, after: lead)
+        stack.setCustomSpacing(28, after: lead)
 
         // The server: asked for when there isn't one; otherwise tucked away behind "Change".
         serverField.placeholder = "Server address, e.g. 192.168.1.20:8765"
@@ -101,9 +111,9 @@ final class SignInViewController: UIViewController {
         serverRow.isHidden = settings.hasServer
         stack.addArrangedSubview(serverRow)
 
-        let appleButton = ASAuthorizationAppleIDButton(type: .signIn, style: traitCollection.userInterfaceStyle == .dark ? .white : .black)
-        appleButton.cornerRadius = 25
-        appleButton.heightAnchor.constraint(equalToConstant: 50).isActive = true
+        let appleButton = ASAuthorizationAppleIDButton(type: .signIn, style: traitCollection.userInterfaceStyle == .dark ? .white : .whiteOutline)
+        appleButton.cornerRadius = 14
+        appleButton.heightAnchor.constraint(equalToConstant: 52).isActive = true
         appleButton.addAction(UIAction { [weak self] _ in self?.signInWithApple() }, for: .touchUpInside)
         stack.addArrangedSubview(appleButton)
         controls.append(appleButton)
@@ -111,16 +121,20 @@ final class SignInViewController: UIViewController {
         if GoogleSignIn.clientID != nil {
             var c = UIButton.Configuration.bordered()
             c.title = "Continue with Google"
-            c.cornerStyle = .capsule
-            c.baseForegroundColor = .label
+            c.background.cornerRadius = 14
+            c.background.backgroundColor = Theme.surface
+            c.background.strokeColor = Theme.hairline
+            c.baseForegroundColor = Theme.ink
             let googleButton = UIButton(configuration: c, primaryAction: UIAction { [weak self] _ in self?.signInWithGoogle() })
             googleButton.heightAnchor.constraint(equalToConstant: 50).isActive = true
             stack.addArrangedSubview(googleButton)
             controls.append(googleButton)
         }
 
-        let or = label("or with your email", style: .footnote, color: .secondaryLabel)
+        let or = UILabel()
+        or.attributedText = Fonts.labelText("or with your email")
         or.textAlignment = .center
+        stack.setCustomSpacing(18, after: stack.arrangedSubviews.last!)
         stack.addArrangedSubview(or)
 
         modeControl.selectedSegmentIndex = 0
@@ -140,10 +154,14 @@ final class SignInViewController: UIViewController {
         controls += [modeControl, nameField, emailField, passwordField]
 
         var p = UIButton.Configuration.filled()
-        p.cornerStyle = .capsule
+        p.background.cornerRadius = 14
         p.baseBackgroundColor = Theme.accent
+        p.baseForegroundColor = .white
+        p.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
+            var a = a; a.font = Fonts.ui(17, weight: .bold, relativeTo: .headline); return a
+        }
         primary.configuration = p
-        primary.heightAnchor.constraint(equalToConstant: 50).isActive = true
+        primary.heightAnchor.constraint(equalToConstant: 52).isActive = true
         primary.addAction(UIAction { [weak self] _ in self?.submitEmail() }, for: .touchUpInside)
         stack.addArrangedSubview(primary)
         forgot.setTitle("Forgot your password?", for: .normal)
@@ -161,7 +179,13 @@ final class SignInViewController: UIViewController {
         if mode == .welcome {
             var g = UIButton.Configuration.plain()
             g.title = "Continue as guest"
-            g.baseForegroundColor = Theme.accent
+            g.baseForegroundColor = Theme.ink
+            g.image = UIImage(systemName: "arrow.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold))
+            g.imagePlacement = .trailing
+            g.imagePadding = 6
+            g.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
+                var a = a; a.font = Fonts.ui(17, weight: .semibold, relativeTo: .headline); return a
+            }
             let guest = UIButton(configuration: g, primaryAction: UIAction { [weak self] _ in self?.continueAsGuest() })
             stack.setCustomSpacing(28, after: spinner)
             stack.addArrangedSubview(guest)
@@ -193,12 +217,20 @@ final class SignInViewController: UIViewController {
     }
 
     private func style(_ field: UITextField, content: UITextContentType, keyboard: UIKeyboardType) {
-        field.borderStyle = .roundedRect
+        // A pale paper well, no border.
+        field.borderStyle = .none
+        field.backgroundColor = Theme.chrome
+        field.layer.cornerRadius = 12
+        field.layer.cornerCurve = .continuous
+        field.font = Fonts.ui(17, relativeTo: .body)
+        field.textColor = Theme.ink
+        field.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 14, height: 1))
+        field.leftViewMode = .always
         field.textContentType = content
         field.keyboardType = keyboard
         field.autocapitalizationType = .none
         field.autocorrectionType = .no
-        field.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        field.heightAnchor.constraint(equalToConstant: 48).isActive = true
         field.addAction(UIAction { [weak self, weak field] _ in
             guard let self, let field else { return }
             // Once the keyboard is up, bring the field (and the button under it) into view.

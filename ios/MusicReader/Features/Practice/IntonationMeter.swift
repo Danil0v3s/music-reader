@@ -20,25 +20,30 @@ final class IntonationMeter: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        target.font = Fonts.serif(54, weight: .semibold)
+        target.font = Fonts.display(80)
         target.textAlignment = .center
         target.adjustsFontSizeToFitWidth = true
-        targetCaption.font = .preferredFont(forTextStyle: .caption1)
+        targetCaption.font = Fonts.label(11)
         targetCaption.textColor = .secondaryLabel
         targetCaption.textAlignment = .center
-        heard.font = .preferredFont(forTextStyle: .subheadline)
+        heard.font = Fonts.ui(15, relativeTo: .subheadline)
         heard.textColor = .secondaryLabel
         heard.textAlignment = .center
-        centsLabel.font = Fonts.mono(28, weight: .semibold)
+        centsLabel.font = Fonts.label(28, weight: .bold)
         centsLabel.textAlignment = .center
 
-        track.backgroundColor = UIColor.systemRed.withAlphaComponent(0.16)
-        track.layer.cornerRadius = 10
-        closeZone.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.25)
-        tuneZone.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.35)
-        centre.backgroundColor = .label.withAlphaComponent(0.6)
-        needle.backgroundColor = .label
-        needle.layer.cornerRadius = 2.5
+        // A white track with a hairline, pale amber and green zones, a needle in the rating's colour.
+        track.backgroundColor = Theme.surface
+        track.layer.cornerRadius = 14
+        track.layer.cornerCurve = .continuous
+        track.layer.borderWidth = 1
+        track.layer.borderColor = Theme.hairline.cgColor
+        track.clipsToBounds = true
+        closeZone.backgroundColor = Theme.rosinSoft
+        tuneZone.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.2)
+        centre.backgroundColor = Theme.ink.withAlphaComponent(0.35)
+        needle.backgroundColor = Theme.accent
+        needle.layer.cornerRadius = 2
         needle.alpha = 0
         track.addSubview(closeZone)
         track.addSubview(tuneZone)
@@ -47,8 +52,8 @@ final class IntonationMeter: UIView {
         track.onLayout = { [weak self] in self?.layoutZones() }
 
         let flat = UILabel(), sharp = UILabel()
-        flat.text = "♭ flat"; sharp.text = "sharp ♯"
-        [flat, sharp].forEach { $0.font = .preferredFont(forTextStyle: .caption2); $0.textColor = .secondaryLabel }
+        flat.text = "♭ FLAT"; sharp.text = "SHARP ♯"
+        [flat, sharp].forEach { $0.font = Fonts.label(11); $0.textColor = Theme.inkSoft }
         let ends = UIStackView(arrangedSubviews: [flat, UIView(), sharp])
 
         let stack = UIStackView(arrangedSubviews: [targetCaption, target, heard, track, ends, centsLabel])
@@ -63,10 +68,10 @@ final class IntonationMeter: UIView {
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            track.heightAnchor.constraint(equalToConstant: 36),
-            needle.widthAnchor.constraint(equalToConstant: 5),
-            needle.topAnchor.constraint(equalTo: track.topAnchor, constant: -6),
-            needle.bottomAnchor.constraint(equalTo: track.bottomAnchor, constant: 6),
+            track.heightAnchor.constraint(equalToConstant: 44),
+            needle.widthAnchor.constraint(equalToConstant: 4),
+            needle.topAnchor.constraint(equalTo: track.topAnchor, constant: 4),
+            needle.bottomAnchor.constraint(equalTo: track.bottomAnchor, constant: -4),
             needleX,
         ])
         isAccessibilityElement = true

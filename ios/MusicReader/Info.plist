@@ -80,6 +80,14 @@
 	<key>UIAppFonts</key>
 	<array>
 		<string>shared/fonts/Bravura.otf</string>
+		<string>shared/fonts/Fraunces-Black.ttf</string>
+		<string>shared/fonts/Fraunces-Bold.ttf</string>
+		<string>shared/fonts/InstrumentSans-Regular.ttf</string>
+		<string>shared/fonts/InstrumentSans-Medium.ttf</string>
+		<string>shared/fonts/InstrumentSans-SemiBold.ttf</string>
+		<string>shared/fonts/InstrumentSans-Bold.ttf</string>
+		<string>shared/fonts/JetBrainsMono-Medium.ttf</string>
+		<string>shared/fonts/JetBrainsMono-Bold.ttf</string>
 	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>

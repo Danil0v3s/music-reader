@@ -1,19 +1,32 @@
 import ScoreKit
 import UIKit
 
-/// Colours and type. The score is ink on warm paper (light) or light ink on near-black (dark). The accent
-/// is a rosin amber; intonation uses the conventional green / amber / red.
+/// Colours and type: "Varnish & Ink", the light cut. Soft ink on warm paper (light) or light ink on warm
+/// near-black (dark), white floating surfaces with hairlines and soft shadows. Varnish (the accent) is for
+/// actions and what's playing; rosin is for things that move (playheads, loops); intonation uses the
+/// conventional green / amber / red.
 enum Theme {
     static let paper = UIColor(named: "Paper")!
     static let ink = UIColor(named: "Ink")!
     static let inkSoft = UIColor(named: "InkSoft")!
     static let chrome = UIColor(named: "Chrome")!
     static let accent = UIColor(named: "AccentColor")!
+    /// Highlights that move: the playhead, the loop, the selected tab.
+    static let rosin = UIColor(named: "Rosin")!
+    /// The pale rosin chip behind a loop, and the text on it.
+    static let rosinSoft = UIColor(named: "RosinSoft")!
+    static let rosinInk = UIColor(named: "RosinInk")!
+    /// Floating cards and bars (white on paper).
+    static let surface = UIColor(named: "Surface")!
+    /// The selected row or tab: a pale varnish wash.
+    static let selected = UIColor(named: "Selected")!
+    /// Hairline borders on surfaces.
+    static var hairline: UIColor { ink.withAlphaComponent(0.12) }
 
     static let inTune = UIColor.systemGreen
     static let close = UIColor.systemOrange
     static let off = UIColor.systemRed
-    static let playing = UIColor.systemBlue
+    static var playing: UIColor { accent }
 
     static func color(for rating: NoteIntonation.Rating) -> UIColor {
         switch rating {
@@ -29,6 +42,25 @@ enum Theme {
 }
 
 enum Fonts {
+    /// Fraunces (display): screen titles, score titles, note names. Bold by default; `.black` for the rare shout.
+    static func display(_ size: CGFloat, weight: UIFont.Weight = .bold, relativeTo style: UIFont.TextStyle? = nil) -> UIFont {
+        let font = UIFont(name: weight >= .heavy ? "Fraunces144pt-Black" : "Fraunces144pt-Bold", size: size) ?? serif(size, weight: .bold)
+        return style.map { UIFontMetrics(forTextStyle: $0).scaledFont(for: font) } ?? font
+    }
+
+    /// Instrument Sans: the interface's own text (buttons, rows, captions), scaled with Dynamic Type.
+    static func ui(_ size: CGFloat, weight: UIFont.Weight = .regular, relativeTo style: UIFont.TextStyle = .body) -> UIFont {
+        let name = weight >= .bold ? "InstrumentSans-Bold" : weight >= .semibold ? "InstrumentSans-SemiBold"
+            : weight >= .medium ? "InstrumentSans-Medium" : "InstrumentSans-Regular"
+        let font = UIFont(name: name, size: size) ?? .systemFont(ofSize: size, weight: weight)
+        return UIFontMetrics(forTextStyle: style).scaledFont(for: font)
+    }
+
+    /// JetBrains Mono: small capitals labels, tempo, codes, cents.
+    static func label(_ size: CGFloat, weight: UIFont.Weight = .medium) -> UIFont {
+        UIFont(name: weight >= .bold ? "JetBrainsMono-Bold" : "JetBrainsMono-Medium", size: size) ?? mono(size, weight: weight)
+    }
+
     /// The SMuFL music font. Its em is four staff spaces.
     static func bravura(_ size: CGFloat) -> UIFont {
         UIFont(name: "Bravura", size: size) ?? .systemFont(ofSize: size)
@@ -48,6 +80,11 @@ enum Fonts {
 
     static func mono(_ size: CGFloat, weight: UIFont.Weight = .medium) -> UIFont {
         .monospacedDigitSystemFont(ofSize: size, weight: weight)
+    }
+
+    /// A small-capitals label in the mono face, letter-spaced (COLLECTIONS, OR WITH EMAIL).
+    static func labelText(_ text: String, size: CGFloat = 11, color: UIColor = Theme.inkSoft) -> NSAttributedString {
+        NSAttributedString(string: text.uppercased(), attributes: [.font: label(size), .kern: 1.5, .foregroundColor: color])
     }
 }
 
@@ -86,4 +123,15 @@ enum Device {
     /// "iPad" or "iPhone", for text that talks about this device.
     @MainActor static var name: String { UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone" }
     @MainActor static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+}
+
+extension UICollectionViewListCell {
+    /// Library rows: white on paper, a pale varnish wash while selected or pressed.
+    func applySurfaceBackground() {
+        configurationUpdateHandler = { cell, state in
+            var background = UIBackgroundConfiguration.listCell().updated(for: state)
+            background.backgroundColor = state.isSelected || state.isHighlighted ? Theme.selected : Theme.surface
+            cell.backgroundConfiguration = background
+        }
+    }
 }

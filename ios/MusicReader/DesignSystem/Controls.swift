@@ -1,6 +1,7 @@
 import UIKit
 
-/// The floating playback bar: rewind, play/pause, practice tempo, metronome.
+/// The floating playback bar: rewind, play/pause, practice tempo, loop, metronome. A white pill with a
+/// hairline and a soft shadow, a big varnish play button, a pale rosin chip while looping.
 final class TransportBar: UIView {
     var onPlay: (() -> Void)?
     var onRewind: (() -> Void)?
@@ -26,30 +27,43 @@ final class TransportBar: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        let glass = UIVisualEffectView(effect: UIGlassEffect())
-        glass.layer.cornerRadius = 28
-        glass.clipsToBounds = true
-        addSubview(glass)
-        glass.translatesAutoresizingMaskIntoConstraints = false
+        let pill = UIView()
+        pill.backgroundColor = Theme.surface
+        pill.layer.cornerRadius = 34
+        pill.layer.cornerCurve = .continuous
+        pill.layer.borderWidth = 1
+        pill.layer.borderColor = Theme.hairline.cgColor
+        pill.layer.shadowColor = UIColor(red: 0.17, green: 0.15, blue: 0.13, alpha: 1).cgColor
+        pill.layer.shadowOpacity = 0.14
+        pill.layer.shadowRadius = 14
+        pill.layer.shadowOffset = CGSize(width: 0, height: 8)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (bar: TransportBar, _) in
+            pill.layer.borderColor = Theme.hairline.resolvedColor(with: bar.traitCollection).cgColor
+        }
+        addSubview(pill)
+        pill.translatesAutoresizingMaskIntoConstraints = false
 
         var big = UIButton.Configuration.filled()
         big.cornerStyle = .capsule
         big.baseBackgroundColor = Theme.accent
+        big.baseForegroundColor = .white
+        big.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 19, weight: .bold)
         play.configuration = big
         play.addAction(UIAction { [weak self] _ in self?.onPlay?() }, for: .primaryActionTriggered)
         play.accessibilityLabel = "Play"
 
         var plain = UIButton.Configuration.plain()
         plain.image = UIImage(systemName: "backward.end.fill")
+        plain.baseForegroundColor = Theme.ink
         rewind.configuration = plain
         rewind.accessibilityLabel = "Back to the start"
         rewind.addAction(UIAction { [weak self] _ in self?.onRewind?() }, for: .primaryActionTriggered)
 
         var tempo = UIButton.Configuration.plain()
         tempo.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-            var a = a; a.font = Fonts.mono(14); return a
+            var a = a; a.font = Fonts.label(14, weight: .bold); return a
         }
-        tempo.baseForegroundColor = .label
+        tempo.baseForegroundColor = Theme.ink
         tempoButton.configuration = tempo
         tempoButton.showsMenuAsPrimaryAction = true
         tempoButton.menu = tempoMenu()
@@ -69,19 +83,19 @@ final class TransportBar: UIView {
         row.alignment = .center
         row.spacing = 6
         row.setCustomSpacing(14, after: spinner)
-        glass.contentView.addSubview(row)
+        pill.addSubview(row)
         row.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            glass.topAnchor.constraint(equalTo: topAnchor),
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            row.topAnchor.constraint(equalTo: glass.contentView.topAnchor, constant: 6),
-            row.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor, constant: -6),
-            row.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor, constant: 8),
-            row.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor, constant: -8),
-            play.widthAnchor.constraint(equalToConstant: 46),
-            play.heightAnchor.constraint(equalToConstant: 46),
+            pill.topAnchor.constraint(equalTo: topAnchor),
+            pill.leadingAnchor.constraint(equalTo: leadingAnchor),
+            pill.trailingAnchor.constraint(equalTo: trailingAnchor),
+            pill.bottomAnchor.constraint(equalTo: bottomAnchor),
+            row.topAnchor.constraint(equalTo: pill.topAnchor, constant: 7),
+            row.bottomAnchor.constraint(equalTo: pill.bottomAnchor, constant: -7),
+            row.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 10),
+            row.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -10),
+            play.widthAnchor.constraint(equalToConstant: 54),
+            play.heightAnchor.constraint(equalToConstant: 54),
             spinner.widthAnchor.constraint(equalToConstant: 0),
         ])
         tempoButton.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -98,15 +112,15 @@ final class TransportBar: UIView {
     }
 
     private func updateLoop() {
-        var c: UIButton.Configuration = loopText == nil ? .plain() : .tinted()
-        c.image = UIImage(systemName: "repeat", withConfiguration: UIImage.SymbolConfiguration(scale: .small))
+        var c: UIButton.Configuration = loopText == nil ? .plain() : .filled()
+        c.image = UIImage(systemName: "repeat", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .bold))
         c.title = loopText
-        c.imagePadding = 4
+        c.imagePadding = 5
         c.cornerStyle = .capsule
-        c.baseForegroundColor = loopText == nil ? .label : Theme.accent
-        c.baseBackgroundColor = Theme.accent
+        c.baseForegroundColor = loopText == nil ? Theme.ink : Theme.rosinInk
+        c.baseBackgroundColor = Theme.rosinSoft
         c.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-            var a = a; a.font = Fonts.mono(13); return a
+            var a = a; a.font = Fonts.label(13, weight: .bold); return a
         }
         loopButton.configuration = c
         loopButton.accessibilityLabel = loopText.map { "Looping bars \($0). Stop looping" } ?? "Loop bars"
@@ -114,7 +128,7 @@ final class TransportBar: UIView {
 
     private func updateMetronome() {
         metronomeButton.configuration?.image = UIImage(systemName: "metronome" + (metronome ? ".fill" : ""))
-        metronomeButton.configuration?.baseForegroundColor = metronome ? Theme.accent : .secondaryLabel
+        metronomeButton.configuration?.baseForegroundColor = metronome ? Theme.accent : Theme.ink
         metronomeButton.accessibilityValue = metronome ? "On" : "Off"
     }
 
@@ -138,28 +152,35 @@ final class InfoPill: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        let glass = UIVisualEffectView(effect: UIGlassEffect())
-        glass.layer.cornerRadius = 18
-        glass.clipsToBounds = true
-        addSubview(glass)
-        title.font = Fonts.serif(17, weight: .semibold)
+        let card = UIView()
+        card.backgroundColor = Theme.surface
+        card.layer.cornerRadius = 16
+        card.layer.cornerCurve = .continuous
+        card.layer.borderWidth = 1
+        card.layer.borderColor = Theme.hairline.cgColor
+        card.layer.shadowColor = UIColor(red: 0.17, green: 0.15, blue: 0.13, alpha: 1).cgColor
+        card.layer.shadowOpacity = 0.08
+        card.layer.shadowRadius = 10
+        card.layer.shadowOffset = CGSize(width: 0, height: 4)
+        addSubview(card)
+        title.font = Fonts.display(18, weight: .bold)
         detail.font = .preferredFont(forTextStyle: .footnote)
-        detail.textColor = .secondaryLabel
+        detail.textColor = Theme.inkSoft
         detail.numberOfLines = 3
         detail.textAlignment = .center
         title.textAlignment = .center
         let stack = UIStackView(arrangedSubviews: [title, detail])
         stack.axis = .vertical
         stack.spacing = 2
-        glass.contentView.addSubview(stack)
-        [glass, stack].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
+        card.addSubview(stack)
+        [card, stack].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
         NSLayoutConstraint.activate([
-            glass.topAnchor.constraint(equalTo: topAnchor), glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor), glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: glass.contentView.topAnchor, constant: 10),
-            stack.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor, constant: -10),
-            stack.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor, constant: -16),
+            card.topAnchor.constraint(equalTo: topAnchor), card.bottomAnchor.constraint(equalTo: bottomAnchor),
+            card.leadingAnchor.constraint(equalTo: leadingAnchor), card.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -10),
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 18),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -18),
             widthAnchor.constraint(lessThanOrEqualToConstant: 420),
         ])
         alpha = 0

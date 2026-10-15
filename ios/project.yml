@@ -61,6 +61,14 @@ targets:
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIAppFonts:
           - shared/fonts/Bravura.otf
+          - shared/fonts/Fraunces-Black.ttf
+          - shared/fonts/Fraunces-Bold.ttf
+          - shared/fonts/InstrumentSans-Regular.ttf
+          - shared/fonts/InstrumentSans-Medium.ttf
+          - shared/fonts/InstrumentSans-SemiBold.ttf
+          - shared/fonts/InstrumentSans-Bold.ttf
+          - shared/fonts/JetBrainsMono-Medium.ttf
+          - shared/fonts/JetBrainsMono-Bold.ttf
         # Playback keeps going with the screen locked (a long piece, a metronome).
         UIBackgroundModes: [audio]
         NSMicrophoneUsageDescription: Music Reader listens to your playing to check intonation and to tune.

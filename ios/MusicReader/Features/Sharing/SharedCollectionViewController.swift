@@ -41,7 +41,7 @@ final class SharedCollectionViewController: UITableViewController {
         var content = UIListContentConfiguration.subtitleCell()
         let score = item.scores[indexPath.row]
         content.text = score.title
-        content.textProperties.font = Fonts.serif(19, weight: .semibold)
+        content.textProperties.font = Fonts.display(19, weight: .bold)
         content.secondaryText = LibraryViewController.subtitle(ScoreSummary(score, hasOriginal: false))
         content.secondaryTextProperties.color = .secondaryLabel
         cell.contentConfiguration = content

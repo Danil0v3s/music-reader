@@ -23,23 +23,29 @@ final class TunerViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
-        frequency.font = Fonts.mono(15)
-        frequency.textColor = .secondaryLabel
+        view.backgroundColor = Theme.paper
+        frequency.font = Fonts.label(13)
+        frequency.textColor = Theme.inkSoft
         frequency.textAlignment = .center
-        note.font = .preferredFont(forTextStyle: .footnote)
-        note.textColor = .secondaryLabel
+        note.font = Fonts.ui(13, relativeTo: .footnote)
+        note.textColor = Theme.inkSoft
         note.numberOfLines = 0
         note.textAlignment = .center
         note.text = "Tap a string to hear its pitch. Open strings are tuned in pure fifths from A."
 
         let strings = UIStackView(arrangedSubviews: CelloString.allCases.reversed().map { s in
-            var c = UIButton.Configuration.gray()
+            // White with a hairline; filled with varnish while its reference tone sounds.
+            var c = UIButton.Configuration.plain()
             c.title = s.pitch.name
             c.subtitle = s.roman
             c.titleAlignment = .center
-            c.cornerStyle = .large
-            c.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in var a = a; a.font = Fonts.serif(26, weight: .semibold); return a }
+            c.baseForegroundColor = Theme.ink
+            c.background.cornerRadius = 20
+            c.background.backgroundColor = Theme.surface
+            c.background.strokeColor = Theme.ink.withAlphaComponent(0.22)
+            c.background.strokeWidth = 1.5
+            c.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in var a = a; a.font = Fonts.display(30, weight: .bold); return a }
+            c.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in var a = a; a.font = Fonts.label(11); return a }
             let b = UIButton(configuration: c)
             b.accessibilityLabel = "\(s.pitch.name) string reference tone"
             b.addAction(UIAction { [weak self] _ in self?.toggleDrone(s) }, for: .primaryActionTriggered)
@@ -57,7 +63,7 @@ final class TunerViewController: UIViewController {
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 40),
             stack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -24),
-            strings.heightAnchor.constraint(equalToConstant: 76),
+            strings.heightAnchor.constraint(equalToConstant: 84),
         ] + NSLayoutConstraint.readable(stack, in: view.safeAreaLayoutGuide, maxWidth: 640, inset: 24))
         mic.onReading = { [weak self] r in self?.heard(r) }
         meter.show(target: nil, caption: "Play a note", heard: nil, cents: nil)
@@ -88,8 +94,9 @@ final class TunerViewController: UIViewController {
         if drone.frequency == f { stopDrone(); return }
         drone.play(f)
         for (string, b) in stringButtons {
-            b.configuration?.baseBackgroundColor = string == s ? Theme.accent : nil
-            b.configuration?.baseForegroundColor = string == s ? .white : .label
+            b.configuration?.background.backgroundColor = string == s ? Theme.accent : Theme.surface
+            b.configuration?.background.strokeColor = string == s ? Theme.accent : Theme.ink.withAlphaComponent(0.22)
+            b.configuration?.baseForegroundColor = string == s ? .white : Theme.ink
         }
         note.text = String(format: "%@ string reference: %.2f Hz. Tap again to stop.", s.pitch.name, f)
     }
@@ -97,8 +104,9 @@ final class TunerViewController: UIViewController {
     private func stopDrone() {
         drone.stop()
         for b in stringButtons.values {
-            b.configuration?.baseBackgroundColor = nil
-            b.configuration?.baseForegroundColor = .label
+            b.configuration?.background.backgroundColor = Theme.surface
+            b.configuration?.background.strokeColor = Theme.ink.withAlphaComponent(0.22)
+            b.configuration?.baseForegroundColor = Theme.ink
         }
     }
 

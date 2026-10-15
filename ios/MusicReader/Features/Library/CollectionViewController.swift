@@ -33,7 +33,7 @@ final class CollectionViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemGroupedBackground
+        view.backgroundColor = Theme.paper
         let add = UIBarButtonItem(systemItem: .add, primaryAction: UIAction { [weak self] _ in self?.addScores() })
         add.accessibilityLabel = "Add Scores"
         let more = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: [
@@ -45,6 +45,7 @@ final class CollectionViewController: UIViewController {
         navigationItem.rightBarButtonItems = [more, add]
 
         var config = UICollectionLayoutListConfiguration(appearance: .insetGrouped)
+        config.backgroundColor = Theme.paper
         config.trailingSwipeActionsConfigurationProvider = { [weak self] indexPath in
             guard let self, let s = self.dataSource.itemIdentifier(for: indexPath) else { return nil }
             let remove = UIContextualAction(style: .destructive, title: "Remove") { [weak self] _, _, done in
@@ -63,6 +64,7 @@ final class CollectionViewController: UIViewController {
         let cell = UICollectionView.CellRegistration<UICollectionViewListCell, ScoreSummary> { cell, _, item in
             cell.contentConfiguration = LibraryViewController.scoreContent(item)
             cell.accessories = [.disclosureIndicator(displayed: .whenNotEditing), .reorder(displayed: .whenEditing)]
+            cell.applySurfaceBackground()
         }
         dataSource = UICollectionViewDiffableDataSource(collectionView: list) { cv, indexPath, item in
             cv.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: item)

@@ -49,7 +49,7 @@ final class LibraryViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemGroupedBackground
+        view.backgroundColor = Theme.paper
         navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .add, menu: addMenu())
 
         let search = UISearchController()
@@ -60,6 +60,7 @@ final class LibraryViewController: UIViewController {
 
         var config = UICollectionLayoutListConfiguration(appearance: .insetGrouped)
         config.headerMode = .supplementary
+        config.backgroundColor = Theme.paper
         config.trailingSwipeActionsConfigurationProvider = { [weak self] indexPath in self?.swipeActions(indexPath) }
         collection = UICollectionView(frame: view.bounds, collectionViewLayout: UICollectionViewCompositionalLayout.list(using: config))
         collection.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -77,23 +78,28 @@ final class LibraryViewController: UIViewController {
         let scoreCell = UICollectionView.CellRegistration<UICollectionViewListCell, ScoreSummary> { cell, _, item in
             cell.contentConfiguration = Self.scoreContent(item)
             cell.accessories = [.disclosureIndicator()]
+            cell.applySurfaceBackground()
         }
         let collectionCell = UICollectionView.CellRegistration<UICollectionViewListCell, UUID> { [weak self] cell, _, id in
             guard let self, let c = self.library.collections.value.collection(id) else { return }
             var content = UIListContentConfiguration.valueCell()
             content.text = c.name
-            content.textProperties.font = .preferredFont(forTextStyle: .body).withWeight(.semibold)
+            content.textProperties.font = Fonts.ui(17, weight: .semibold, relativeTo: .body)
             content.image = UIImage(systemName: "folder.fill")
             content.imageProperties.tintColor = Theme.accent
+            // The count in Fraunces, varnish: the collection card's number.
             content.secondaryText = "\(self.present(c).count)"
+            content.secondaryTextProperties.font = Fonts.display(20, relativeTo: .body)
+            content.secondaryTextProperties.color = Theme.accent
             cell.contentConfiguration = content
             cell.accessories = [.disclosureIndicator()]
+            cell.applySurfaceBackground()
         }
         let header = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(elementKind: UICollectionView.elementKindSectionHeader) {
             [weak self] cell, _, indexPath in
             var content = UIListContentConfiguration.header()
             let section = self?.dataSource.sectionIdentifier(for: indexPath.section)
-            content.text = section == .collections ? "Collections" : "All Scores"
+            content.attributedText = Fonts.labelText(section == .collections ? "Collections" : "All Scores")
             cell.contentConfiguration = content
         }
         dataSource = UICollectionViewDiffableDataSource(collectionView: collection) { cv, indexPath, item in
@@ -113,9 +119,9 @@ final class LibraryViewController: UIViewController {
     static func scoreContent(_ item: ScoreSummary) -> UIListContentConfiguration {
         var content = UIListContentConfiguration.subtitleCell()
         content.text = item.title
-        content.textProperties.font = Fonts.serif(19, weight: .semibold)
+        content.textProperties.font = Fonts.display(19, weight: .bold, relativeTo: .headline)
         content.secondaryText = subtitle(item)
-        content.secondaryTextProperties.color = .secondaryLabel
+        content.secondaryTextProperties.color = Theme.inkSoft
         content.image = UIImage(systemName: item.source == .omr ? "doc.viewfinder" : item.source == .musicXML ? "doc.text" : "pencil.and.scribble")
         content.imageProperties.tintColor = Theme.accent
         content.textToSecondaryTextVerticalPadding = 4

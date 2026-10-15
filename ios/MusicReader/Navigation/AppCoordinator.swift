@@ -489,7 +489,7 @@ final class EmptyDetailViewController: UIViewController {
         icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 44, weight: .light)
         let label = UILabel()
         label.text = "Choose a score to read, play and practise."
-        label.font = Fonts.serif(20)
+        label.font = Fonts.display(22, weight: .bold)
         label.textColor = .secondaryLabel
         label.numberOfLines = 0
         label.textAlignment = .center

@@ -59,7 +59,7 @@ final class NewScoreViewController: UITableViewController {
             let field = UITextField()
             field.placeholder = isTitle ? "Title" : "Composer (optional)"
             field.text = isTitle ? title_ : composer
-            field.font = isTitle ? Fonts.serif(20, weight: .semibold) : .preferredFont(forTextStyle: .body)
+            field.font = isTitle ? Fonts.display(20, weight: .bold) : .preferredFont(forTextStyle: .body)
             field.clearButtonMode = .whileEditing
             field.returnKeyType = .done
             field.addAction(UIAction { [weak self, weak field] _ in

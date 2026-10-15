@@ -21,6 +21,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = scene as? UIWindowScene else { return }
         let dependencies = AppDependencies()
         let coordinator = AppCoordinator(dependencies: dependencies)
+        Self.styleNavigationBars()
         let window = UIWindow(windowScene: windowScene)
         window.rootViewController = coordinator.root
         window.tintColor = Theme.accent
@@ -30,6 +31,13 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         self.dependencies = dependencies
         coordinator.start()
         if let url = connectionOptions.urlContexts.first?.url { open(url) }
+    }
+
+    /// Varnish & Ink: large titles in Fraunces Bold, small ones in Instrument Sans.
+    private static func styleNavigationBars() {
+        let bar = UINavigationBar.appearance()
+        bar.largeTitleTextAttributes = [.font: Fonts.display(36, relativeTo: .largeTitle), .foregroundColor: Theme.ink, .kern: -0.8]
+        bar.titleTextAttributes = [.font: Fonts.ui(17, weight: .semibold, relativeTo: .headline), .foregroundColor: Theme.ink]
     }
 
     /// Coming back to the app picks up changes made on other devices. While the app is in front the screen
