@@ -2,19 +2,23 @@ import Combine
 import ScoreKit
 import UIKit
 
-/// The scores on this device: collections first, then every score, newest first. Pull down to sync with the
-/// server. The + menu writes, scans, imports or starts a collection.
+/// The scores on this device: what was played last (to pick up again), collections as tiles, then every
+/// score, newest first. Pull down to sync with the server. The + menu writes, scans, imports or starts a
+/// collection.
 final class LibraryViewController: UIViewController {
     enum Item: Hashable {
+        case resume(LastPlayed)
         case collection(UUID)
         case score(ScoreSummary)
     }
 
-    enum Section: Int { case collections, scores }
+    enum Section: Int { case resume, collections, scores }
 
     private let library: ScoreLibrary
     private let sync: SyncService
+    private let settings: SettingsStore
     private let onOpen: (UUID) -> Void
+    private let onResume: (LastPlayed) -> Void
     private let onOpenCollection: (UUID) -> Void
     private let onImportFile: () -> Void
     private let onImportPhoto: () -> Void
@@ -28,12 +32,15 @@ final class LibraryViewController: UIViewController {
     private var bag = Set<AnyCancellable>()
     private var query = ""
 
-    init(library: ScoreLibrary, sync: SyncService, onOpen: @escaping (UUID) -> Void, onOpenCollection: @escaping (UUID) -> Void,
+    init(library: ScoreLibrary, sync: SyncService, settings: SettingsStore, onOpen: @escaping (UUID) -> Void,
+         onResume: @escaping (LastPlayed) -> Void, onOpenCollection: @escaping (UUID) -> Void,
          onImportFile: @escaping () -> Void, onImportPhoto: @escaping () -> Void, onScan: @escaping () -> Void, onNew: @escaping () -> Void,
          onOpenSharedCode: @escaping () -> Void, onShareCollection: @escaping (UUID) -> Void) {
         self.library = library
         self.sync = sync
+        self.settings = settings
         self.onOpen = onOpen
+        self.onResume = onResume
         self.onOpenCollection = onOpenCollection
         self.onImportFile = onImportFile
         self.onImportPhoto = onImportPhoto
@@ -58,11 +65,8 @@ final class LibraryViewController: UIViewController {
         search.searchBar.placeholder = "Title, composer or collection"
         navigationItem.searchController = search
 
-        var config = UICollectionLayoutListConfiguration(appearance: .insetGrouped)
-        config.headerMode = .supplementary
-        config.backgroundColor = Theme.paper
-        config.trailingSwipeActionsConfigurationProvider = { [weak self] indexPath in self?.swipeActions(indexPath) }
-        collection = UICollectionView(frame: view.bounds, collectionViewLayout: UICollectionViewCompositionalLayout.list(using: config))
+        collection = UICollectionView(frame: view.bounds, collectionViewLayout: makeLayout())
+        collection.backgroundColor = Theme.paper
         collection.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         collection.delegate = self
         let refresh = UIRefreshControl()
@@ -80,20 +84,13 @@ final class LibraryViewController: UIViewController {
             cell.accessories = [.disclosureIndicator()]
             cell.applySurfaceBackground()
         }
-        let collectionCell = UICollectionView.CellRegistration<UICollectionViewListCell, UUID> { [weak self] cell, _, id in
+        let collectionCell = UICollectionView.CellRegistration<CollectionTileCell, UUID> { [weak self] cell, _, id in
             guard let self, let c = self.library.collections.value.collection(id) else { return }
-            var content = UIListContentConfiguration.valueCell()
-            content.text = c.name
-            content.textProperties.font = Fonts.ui(17, weight: .semibold, relativeTo: .body)
-            content.image = UIImage(systemName: "folder.fill")
-            content.imageProperties.tintColor = Theme.accent
-            // The count in Fraunces, varnish: the collection card's number.
-            content.secondaryText = "\(self.present(c).count)"
-            content.secondaryTextProperties.font = Fonts.display(20, relativeTo: .body)
-            content.secondaryTextProperties.color = Theme.accent
-            cell.contentConfiguration = content
-            cell.accessories = [.disclosureIndicator()]
-            cell.applySurfaceBackground()
+            cell.configure(name: c.name, count: self.present(c).count)
+        }
+        let resumeCell = UICollectionView.CellRegistration<NowPlayingCell, LastPlayed> { [weak self] cell, _, last in
+            guard let score = try? self?.library.load(last.scoreId) else { return }
+            cell.configure(score: score, last: last)
         }
         let header = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(elementKind: UICollectionView.elementKindSectionHeader) {
             [weak self] cell, _, indexPath in
@@ -106,20 +103,61 @@ final class LibraryViewController: UIViewController {
             switch item {
             case .score(let s): cv.dequeueConfiguredReusableCell(using: scoreCell, for: indexPath, item: s)
             case .collection(let id): cv.dequeueConfiguredReusableCell(using: collectionCell, for: indexPath, item: id)
+            case .resume(let last): cv.dequeueConfiguredReusableCell(using: resumeCell, for: indexPath, item: last)
             }
         }
         dataSource.supplementaryViewProvider = { cv, _, indexPath in
             cv.dequeueConfiguredReusableSupplementary(using: header, for: indexPath)
         }
 
-        library.summaries.combineLatest(library.collections).receive(on: DispatchQueue.main)
+        library.summaries.combineLatest(library.collections, settings.settings.map(\.lastPlayed).removeDuplicates())
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.apply() }.store(in: &bag)
+    }
+
+    /// The card, a grid of collection tiles (two across on a phone, more when there's room), the score list.
+    private func makeLayout() -> UICollectionViewCompositionalLayout {
+        UICollectionViewCompositionalLayout { [weak self] index, env in
+            let header = NSCollectionLayoutBoundarySupplementaryItem(
+                layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(36)),
+                elementKind: UICollectionView.elementKindSectionHeader, alignment: .top)
+            let margin = env.container.effectiveContentSize.width > 500 ? 20.0 : 16.0
+            switch self?.dataSource?.sectionIdentifier(for: index) {
+            case .resume:
+                let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(160))
+                let section = NSCollectionLayoutSection(group: .vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)]))
+                section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: margin, bottom: 8, trailing: margin)
+                return section
+            case .collections:
+                let width = env.container.effectiveContentSize.width - 2 * margin
+                let across = max(2, Int(width / 170))
+                let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1 / CGFloat(across)),
+                                                                                    heightDimension: .fractionalHeight(1)))
+                let group = NSCollectionLayoutGroup.horizontal(
+                    layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(84)),
+                    repeatingSubitem: item, count: across)
+                group.interItemSpacing = .fixed(8)
+                let section = NSCollectionLayoutSection(group: group)
+                section.interGroupSpacing = 8
+                // Line the heading up with the score list's ("All Scores").
+                header.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 0)
+                section.boundarySupplementaryItems = [header]
+                section.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: margin, bottom: 8, trailing: margin)
+                return section
+            default:
+                var config = UICollectionLayoutListConfiguration(appearance: .insetGrouped)
+                config.headerMode = .supplementary
+                config.backgroundColor = Theme.paper
+                config.trailingSwipeActionsConfigurationProvider = { [weak self] indexPath in self?.swipeActions(indexPath) }
+                return .list(using: config, layoutEnvironment: env)
+            }
+        }
     }
 
     static func scoreContent(_ item: ScoreSummary) -> UIListContentConfiguration {
         var content = UIListContentConfiguration.subtitleCell()
         content.text = item.title
-        content.textProperties.font = Fonts.display(19, weight: .bold, relativeTo: .headline)
+        content.textProperties.font = Fonts.display(19, relativeTo: .headline)
         content.secondaryText = subtitle(item)
         content.secondaryTextProperties.color = Theme.inkSoft
         content.image = UIImage(systemName: item.source == .omr ? "doc.viewfinder" : item.source == .musicXML ? "doc.text" : "pencil.and.scribble")
@@ -165,6 +203,10 @@ final class LibraryViewController: UIViewController {
             .filter { matches($0.name) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
+        if query.isEmpty, let last = settings.value.lastPlayed, library.summaries.value.contains(where: { $0.id == last.scoreId }) {
+            snapshot.appendSections([.resume])
+            snapshot.appendItems([.resume(last)], toSection: .resume)
+        }
         if !collections.isEmpty {
             snapshot.appendSections([.collections])
             snapshot.appendItems(collections.map { .collection($0.id) }, toSection: .collections)
@@ -221,6 +263,8 @@ final class LibraryViewController: UIViewController {
     private func swipeActions(_ indexPath: IndexPath) -> UISwipeActionsConfiguration? {
         guard let item = dataSource.itemIdentifier(for: indexPath) else { return nil }
         switch item {
+        case .resume:
+            return nil
         case .collection(let id):
             let delete = UIContextualAction(style: .destructive, title: "Delete") { [weak self] _, _, done in
                 self?.confirmDeleteCollection(id, done: done)
@@ -271,6 +315,7 @@ extension LibraryViewController: UICollectionViewDelegate {
         switch dataSource.itemIdentifier(for: indexPath) {
         case .score(let s): onOpen(s.id)
         case .collection(let id): onOpenCollection(id)
+        case .resume(let last): onResume(last)
         case nil: break
         }
     }
@@ -279,7 +324,12 @@ extension LibraryViewController: UICollectionViewDelegate {
         guard let indexPath = indexPaths.first else { return nil }
         if case .collection(let id) = dataSource.itemIdentifier(for: indexPath) {
             return UIContextMenuConfiguration(actionProvider: { [weak self] _ in
-                UIMenu(children: [UIAction(title: "Share…", image: UIImage(systemName: "person.2")) { [weak self] _ in self?.onShareCollection(id) }])
+                UIMenu(children: [
+                    UIAction(title: "Share…", image: UIImage(systemName: "person.2")) { [weak self] _ in self?.onShareCollection(id) },
+                    UIAction(title: "Delete Collection", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+                        self?.confirmDeleteCollection(id)
+                    },
+                ])
             })
         }
         guard case .score(let s) = dataSource.itemIdentifier(for: indexPath) else { return nil }

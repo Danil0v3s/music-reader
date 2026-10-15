@@ -81,6 +81,7 @@
 	<array>
 		<string>shared/fonts/Bravura.otf</string>
 		<string>shared/fonts/Fraunces-Black.ttf</string>
+		<string>shared/fonts/Fraunces-SemiBold.ttf</string>
 		<string>shared/fonts/Fraunces-Bold.ttf</string>
 		<string>shared/fonts/InstrumentSans-Regular.ttf</string>
 		<string>shared/fonts/InstrumentSans-Medium.ttf</string>

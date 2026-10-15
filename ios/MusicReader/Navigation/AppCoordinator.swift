@@ -8,7 +8,7 @@ import VisionKit
 /// Navigation intents the screens call: a screen says "open this score", not "push ScoreViewController".
 @MainActor
 protocol Coordinator: AnyObject {
-    func openScore(_ id: UUID)
+    func openScore(_ id: UUID, resume: LastPlayed?)
     func openCollection(_ id: UUID)
     func closeCollection(_ id: UUID)
     func editScore(_ id: UUID)
@@ -29,6 +29,10 @@ protocol Coordinator: AnyObject {
     func deleteAccount()
     func share(_ items: [Any], from source: UIBarButtonItem?)
     func pop()
+}
+
+extension Coordinator {
+    func openScore(_ id: UUID) { openScore(id, resume: nil) }
 }
 
 /// Owns the tab bar (Library · Tuner · Settings) and everything pushed or presented over it.
@@ -252,9 +256,10 @@ final class AppCoordinator: NSObject, Coordinator {
         return top
     }
 
-    func openScore(_ id: UUID) {
+    /// Opens a score; `resume` brings back the bars on repeat and the practice tempo it was last played with.
+    func openScore(_ id: UUID, resume: LastPlayed? = nil) {
         root.selectedIndex = 0
-        guard let vc = factory.score(id) else { return }
+        guard let vc = factory.score(id, resume: resume) else { return }
         if let split {
             detailNav.setViewControllers([vc], animated: false)
             split.show(.secondary)
@@ -489,7 +494,7 @@ final class EmptyDetailViewController: UIViewController {
         icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 44, weight: .light)
         let label = UILabel()
         label.text = "Choose a score to read, play and practise."
-        label.font = Fonts.display(22, weight: .bold)
+        label.font = Fonts.display(22)
         label.textColor = .secondaryLabel
         label.numberOfLines = 0
         label.textAlignment = .center

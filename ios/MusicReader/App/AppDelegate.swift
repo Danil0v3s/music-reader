@@ -33,7 +33,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         if let url = connectionOptions.urlContexts.first?.url { open(url) }
     }
 
-    /// Varnish & Ink: large titles in Fraunces Bold, small ones in Instrument Sans.
+    /// Varnish & Ink: large titles in Fraunces SemiBold, small ones in Instrument Sans.
     private static func styleNavigationBars() {
         let bar = UINavigationBar.appearance()
         bar.largeTitleTextAttributes = [.font: Fonts.display(36, relativeTo: .largeTitle), .foregroundColor: Theme.ink, .kern: -0.8]

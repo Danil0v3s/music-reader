@@ -33,7 +33,9 @@ final class ScoreViewController: UIViewController {
     private var tempoScale = 1.0
     private var moreItem: UIBarButtonItem!
 
-    init(score: Score, library: ScoreLibrary, player: ScorePlayer, settings: SettingsStore, onEdit: @escaping () -> Void,
+    private let resume: LastPlayed?
+
+    init(score: Score, library: ScoreLibrary, player: ScorePlayer, settings: SettingsStore, resume: LastPlayed? = nil, onEdit: @escaping () -> Void,
          onPractice: @escaping (Int) -> Void, onOriginal: @escaping () -> Void, onShare: @escaping ([Any], UIBarButtonItem?) -> Void,
          onShareCode: (() -> Void)? = nil, onImport: (() -> Void)? = nil) {
         self.score = score
@@ -46,6 +48,7 @@ final class ScoreViewController: UIViewController {
         self.onShare = onShare
         self.onShareCode = onShareCode
         self.onImport = onImport
+        self.resume = resume?.scoreId == score.id ? resume : nil
         super.init(nibName: nil, bundle: nil)
         title = score.title
         navigationItem.largeTitleDisplayMode = .never
@@ -119,6 +122,13 @@ final class ScoreViewController: UIViewController {
             self?.settings.update { $0.metronome = on }
         }
         player.metronome = settings.value.metronome
+        if let resume {
+            let count = score.parts[scoreView.partIndex].measures.count
+            tempoScale = resume.tempoScale
+            transport.scale = resume.tempoScale
+            startMeasure = min(resume.startMeasure, max(0, count - 1))
+            if let r = resume.loop, r.upperBound < count { loop = r }
+        }
         transport.tempoText = tempoLabel()
 
         player.state.receive(on: DispatchQueue.main).sink { [weak self] state in self?.playerChanged(state) }.store(in: &bag)
@@ -207,6 +217,10 @@ final class ScoreViewController: UIViewController {
     private func play(from time: Double, countIn: Bool) {
         let s = schedule ?? buildSchedule()
         let beats = countIn && settings.value.countIn && settings.value.metronome ? countInBeats() : 0
+        if !isShared {
+            let last = LastPlayed(scoreId: score.id, startMeasure: startMeasure, loop: loop, tempoScale: tempoScale)
+            settings.update { $0.lastPlayed = last }
+        }
         if loop != nil {
             player.playLoop(s, from: min(time, max(0, s.duration - 0.05)), countInBeats: beats)
         } else {
@@ -312,7 +326,7 @@ final class ScoreViewController: UIViewController {
     }
 
     private func showSelection(_ range: ClosedRange<Int>) {
-        scoreView.measureTints = Dictionary(uniqueKeysWithValues: range.map { ($0, Theme.accent) })
+        scoreView.measureTints = Dictionary(uniqueKeysWithValues: range.map { ($0, Theme.rosin) })
         transport.loopText = barNumbers(range)
     }
 

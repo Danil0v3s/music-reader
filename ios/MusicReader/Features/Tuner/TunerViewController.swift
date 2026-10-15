@@ -44,7 +44,7 @@ final class TunerViewController: UIViewController {
             c.background.backgroundColor = Theme.surface
             c.background.strokeColor = Theme.ink.withAlphaComponent(0.22)
             c.background.strokeWidth = 1.5
-            c.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in var a = a; a.font = Fonts.display(30, weight: .bold); return a }
+            c.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in var a = a; a.font = Fonts.display(30); return a }
             c.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in var a = a; a.font = Fonts.label(11); return a }
             let b = UIButton(configuration: c)
             b.accessibilityLabel = "\(s.pitch.name) string reference tone"

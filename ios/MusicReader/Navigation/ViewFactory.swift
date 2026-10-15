@@ -10,7 +10,8 @@ final class ViewFactory {
     init(dependencies: AppDependencies) { self.d = dependencies }
 
     func library() -> LibraryViewController {
-        LibraryViewController(library: d.library, sync: d.sync, onOpen: { [weak self] in self?.coordinator?.openScore($0) },
+        LibraryViewController(library: d.library, sync: d.sync, settings: d.settings, onOpen: { [weak self] in self?.coordinator?.openScore($0) },
+                              onResume: { [weak self] in self?.coordinator?.openScore($0.scoreId, resume: $0) },
                               onOpenCollection: { [weak self] in self?.coordinator?.openCollection($0) },
                               onImportFile: { [weak self] in self?.coordinator?.pickFileToImport() },
                               onImportPhoto: { [weak self] in self?.coordinator?.pickPhotoToImport() },
@@ -27,10 +28,10 @@ final class ViewFactory {
                                  onShare: { [weak self] in self?.coordinator?.shareCollection(id) })
     }
 
-    func score(_ id: UUID) -> ScoreViewController? {
+    func score(_ id: UUID, resume: LastPlayed? = nil) -> ScoreViewController? {
         guard let score = try? d.library.load(id) else { return nil }
         let c = coordinator
-        return ScoreViewController(score: score, library: d.library, player: d.player, settings: d.settings,
+        return ScoreViewController(score: score, library: d.library, player: d.player, settings: d.settings, resume: resume,
                                    onEdit: { c?.editScore(id) }, onPractice: { c?.practice(id, startMeasure: $0) },
                                    onOriginal: { c?.showOriginal(id) }, onShare: { c?.share($0, from: $1) },
                                    onShareCode: { c?.shareScore(id) })

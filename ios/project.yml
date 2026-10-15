@@ -62,6 +62,7 @@ targets:
         UIAppFonts:
           - shared/fonts/Bravura.otf
           - shared/fonts/Fraunces-Black.ttf
+          - shared/fonts/Fraunces-SemiBold.ttf
           - shared/fonts/Fraunces-Bold.ttf
           - shared/fonts/InstrumentSans-Regular.ttf
           - shared/fonts/InstrumentSans-Medium.ttf

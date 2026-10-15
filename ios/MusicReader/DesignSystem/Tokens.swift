@@ -42,9 +42,10 @@ enum Theme {
 }
 
 enum Fonts {
-    /// Fraunces (display): screen titles, score titles, note names. Bold by default; `.black` for the rare shout.
-    static func display(_ size: CGFloat, weight: UIFont.Weight = .bold, relativeTo style: UIFont.TextStyle? = nil) -> UIFont {
-        let font = UIFont(name: weight >= .heavy ? "Fraunces144pt-Black" : "Fraunces144pt-Bold", size: size) ?? serif(size, weight: .bold)
+    /// Fraunces (display): screen titles, score titles, note names. SemiBold by default; `.bold` or `.black` to shout.
+    static func display(_ size: CGFloat, weight: UIFont.Weight = .semibold, relativeTo style: UIFont.TextStyle? = nil) -> UIFont {
+        let name = weight >= .heavy ? "Fraunces144pt-Black" : weight >= .bold ? "Fraunces144pt-Bold" : "Fraunces144pt-SemiBold"
+        let font = UIFont(name: name, size: size) ?? serif(size, weight: .semibold)
         return style.map { UIFontMetrics(forTextStyle: $0).scaledFont(for: font) } ?? font
     }
 

@@ -23,7 +23,8 @@ final class TransportBar: UIView {
     private let loopButton = UIButton(type: .system)
     private let spinner = UIActivityIndicatorView(style: .medium)
     private let scales: [Double] = [0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25]
-    private var scale = 1.0
+    /// The practice tempo ticked in the menu (1 = as written).
+    var scale = 1.0 { didSet { tempoButton.menu = tempoMenu() } }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -137,7 +138,6 @@ final class TransportBar: UIView {
             UIAction(title: s == 1 ? "Written tempo" : "\(Int((s * 100).rounded()))%", state: s == scale ? .on : .off) { [weak self] _ in
                 guard let self else { return }
                 self.scale = s
-                self.tempoButton.menu = self.tempoMenu()
                 self.onTempo?(s)
             }
         })
@@ -163,7 +163,7 @@ final class InfoPill: UIView {
         card.layer.shadowRadius = 10
         card.layer.shadowOffset = CGSize(width: 0, height: 4)
         addSubview(card)
-        title.font = Fonts.display(18, weight: .bold)
+        title.font = Fonts.display(18)
         detail.font = .preferredFont(forTextStyle: .footnote)
         detail.textColor = Theme.inkSoft
         detail.numberOfLines = 3

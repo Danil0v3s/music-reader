@@ -16,6 +16,8 @@ struct AppSettings: Codable, Equatable {
     var syncLibrary = true
     /// Play with the recorded cello (University of Iowa samples) rather than the synthesised tone.
     var recordedCello = true
+    /// What was played last, for the library's "pick up where you left off" card.
+    var lastPlayed: LastPlayed?
 
     init() {}
 
@@ -31,7 +33,16 @@ struct AppSettings: Codable, Equatable {
         staffSpace = try c.decodeIfPresent(Double.self, forKey: .staffSpace) ?? d.staffSpace
         syncLibrary = try c.decodeIfPresent(Bool.self, forKey: .syncLibrary) ?? d.syncLibrary
         recordedCello = try c.decodeIfPresent(Bool.self, forKey: .recordedCello) ?? d.recordedCello
+        lastPlayed = try c.decodeIfPresent(LastPlayed.self, forKey: .lastPlayed)
     }
+}
+
+/// A score last played: where from, which bars were on repeat, and at what practice tempo.
+struct LastPlayed: Codable, Hashable {
+    var scoreId: UUID
+    var startMeasure: Int
+    var loop: ClosedRange<Int>?
+    var tempoScale: Double
 }
 
 @MainActor
