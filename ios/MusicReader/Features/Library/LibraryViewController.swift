@@ -157,7 +157,7 @@ final class LibraryViewController: UIViewController {
     static func scoreContent(_ item: ScoreSummary) -> UIListContentConfiguration {
         var content = UIListContentConfiguration.subtitleCell()
         content.text = item.title
-        content.textProperties.font = Fonts.display(19, relativeTo: .headline)
+        content.textProperties.font = Fonts.display(17, relativeTo: .headline)
         content.secondaryText = subtitle(item)
         content.secondaryTextProperties.color = Theme.inkSoft
         content.image = UIImage(systemName: item.source == .omr ? "doc.viewfinder" : item.source == .musicXML ? "doc.text" : "pencil.and.scribble")

@@ -20,7 +20,7 @@ final class IntonationMeter: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        target.font = Fonts.display(80)
+        target.font = Fonts.display(72)
         target.textAlignment = .center
         target.adjustsFontSizeToFitWidth = true
         targetCaption.font = Fonts.label(11)

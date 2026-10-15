@@ -42,10 +42,10 @@ enum Theme {
 }
 
 enum Fonts {
-    /// Fraunces (display): screen titles, score titles, note names. SemiBold by default; `.bold` or `.black` to shout.
+    /// Poppins (display): screen titles, score titles, note names. SemiBold by default; `.medium` or `.bold` either side.
     static func display(_ size: CGFloat, weight: UIFont.Weight = .semibold, relativeTo style: UIFont.TextStyle? = nil) -> UIFont {
-        let name = weight >= .heavy ? "Fraunces144pt-Black" : weight >= .bold ? "Fraunces144pt-Bold" : "Fraunces144pt-SemiBold"
-        let font = UIFont(name: name, size: size) ?? serif(size, weight: .semibold)
+        let name = weight >= .bold ? "Poppins-Bold" : weight >= .semibold ? "Poppins-SemiBold" : "Poppins-Medium"
+        let font = UIFont(name: name, size: size) ?? .systemFont(ofSize: size, weight: weight)
         return style.map { UIFontMetrics(forTextStyle: $0).scaledFont(for: font) } ?? font
     }
 

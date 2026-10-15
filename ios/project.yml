@@ -61,9 +61,9 @@ targets:
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIAppFonts:
           - shared/fonts/Bravura.otf
-          - shared/fonts/Fraunces-Black.ttf
-          - shared/fonts/Fraunces-SemiBold.ttf
-          - shared/fonts/Fraunces-Bold.ttf
+          - shared/fonts/Poppins-Medium.ttf
+          - shared/fonts/Poppins-SemiBold.ttf
+          - shared/fonts/Poppins-Bold.ttf
           - shared/fonts/InstrumentSans-Regular.ttf
           - shared/fonts/InstrumentSans-Medium.ttf
           - shared/fonts/InstrumentSans-SemiBold.ttf

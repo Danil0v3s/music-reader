@@ -15,7 +15,7 @@ final class NowPlayingCell: UICollectionViewCell {
         contentView.layer.cornerRadius = 20
         contentView.layer.cornerCurve = .continuous
         caption.attributedText = Fonts.labelText("Pick up where you left off", size: 10)
-        title.font = Fonts.display(19, relativeTo: .headline)
+        title.font = Fonts.display(17, relativeTo: .headline)
         title.textColor = Theme.ink
         title.adjustsFontForContentSizeCategory = true
         detail.font = Fonts.ui(13, relativeTo: .footnote)
@@ -251,7 +251,7 @@ final class MiniStaffView: UIView {
     }
 }
 
-/// A collection as a tile: the number of scores in Fraunces, varnish, over the name.
+/// A collection as a tile: the number of scores in Poppins, varnish, over the name.
 final class CollectionTileCell: UICollectionViewCell {
     private let count = UILabel()
     private let name = UILabel()

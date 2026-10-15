@@ -83,8 +83,8 @@ final class SignInViewController: UIViewController {
         let heading = UILabel()
         let headingText = mode == .welcome ? "Music Reader" : "Sign in to keep your library"
         let title = NSMutableAttributedString(string: headingText, attributes: [
-            .font: Fonts.display(mode == .welcome ? 48 : 28, relativeTo: .largeTitle), .foregroundColor: Theme.ink, .kern: -0.8])
-        title.append(NSAttributedString(string: ".", attributes: [.font: Fonts.display(mode == .welcome ? 48 : 28, relativeTo: .largeTitle), .foregroundColor: Theme.accent]))
+            .font: Fonts.display(mode == .welcome ? 40 : 26, relativeTo: .largeTitle), .foregroundColor: Theme.ink, .kern: -0.6])
+        title.append(NSAttributedString(string: ".", attributes: [.font: Fonts.display(mode == .welcome ? 40 : 26, relativeTo: .largeTitle), .foregroundColor: Theme.accent]))
         heading.attributedText = title
         heading.adjustsFontForContentSizeCategory = true
         heading.numberOfLines = 0
