@@ -6,7 +6,8 @@ import UIKit
 /// `SIMCTL_CHILD_MR_DEV_SCREEN=score xcrun simctl launch booted br.com.firstsoft.musicreader`
 ///  - MR_DEV_SCREEN: library | score | editor | practice | tuner | settings | new | import
 ///    (score/editor/practice open the bundled étude, saved fresh).
-///  - MR_DEV_SERVER: sets the recognition server address (e.g. http://localhost:8765).
+///  - MR_DEV_SERVER: sets the server address (e.g. http://localhost:8765).
+///  - MR_DEV_GUEST=1: when signed out, continues as a guest (skips the sign-in screen).
 ///  - MR_DEV_IMPORT: a file path to import as if opened from Files (a PDF goes to the server).
 ///  - MR_DEV_EXPORT_PDF: writes the bundled étude, engraved, as a PDF at this path.
 @MainActor
@@ -14,6 +15,12 @@ enum DevLaunch {
     static func run(coordinator: AppCoordinator, dependencies: AppDependencies) {
         let env = ProcessInfo.processInfo.environment
         if let server = env["MR_DEV_SERVER"] { dependencies.settings.update { $0.serverAddress = server } }
+        if env["MR_DEV_GUEST"] == "1", dependencies.account.user == nil {
+            Task { @MainActor in
+                try? await dependencies.account.continueAsGuest()
+                coordinator.root.dismiss(animated: false)
+            }
+        }
         if let path = env["MR_DEV_EXPORT_PDF"], let score = dependencies.sampleScore() {
             let view = ScoreView(frame: CGRect(x: 0, y: 0, width: 595, height: 842))
             view.score = score

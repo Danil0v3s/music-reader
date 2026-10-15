@@ -115,13 +115,11 @@ final class PracticeViewController: UIViewController {
             scoreView.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             scoreView.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
             controls.topAnchor.constraint(greaterThanOrEqualTo: paper.bottomAnchor, constant: 16),
-            controls.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 24),
-            controls.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -24),
             controls.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -12),
             infoPill.centerXAnchor.constraint(equalTo: paper.centerXAnchor),
             infoPill.bottomAnchor.constraint(equalTo: paper.bottomAnchor, constant: -8),
             infoPill.leadingAnchor.constraint(greaterThanOrEqualTo: paper.leadingAnchor, constant: 8),
-        ])
+        ] + NSLayoutConstraint.readable(controls, in: guide, maxWidth: 640, inset: 24))
 
         scoreView.staffSpace = 7
         scoreView.showHeader = false

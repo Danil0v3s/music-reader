@@ -64,12 +64,11 @@ final class SignInViewController: UIViewController {
             scroll.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: mode == .welcome ? 56 : 20),
+            // On a tall screen (iPad) the form sits lower, near the middle; on a phone, near the top.
+            stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor,
+                                       constant: mode == .welcome ? (Device.isPad ? 140 : 56) : 20),
             stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -32),
-            stack.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor, constant: -24),
-            stack.widthAnchor.constraint(lessThanOrEqualToConstant: 460),
-        ])
+        ] + NSLayoutConstraint.readable(stack, in: scroll.frameLayoutGuide, maxWidth: 460, inset: 24))
         build()
     }
 
@@ -166,7 +165,7 @@ final class SignInViewController: UIViewController {
             let guest = UIButton(configuration: g, primaryAction: UIAction { [weak self] _ in self?.continueAsGuest() })
             stack.setCustomSpacing(28, after: spinner)
             stack.addArrangedSubview(guest)
-            stack.addArrangedSubview(label("No account needed. Your scores are kept for this iPhone; create an account any time to keep them on all your devices.",
+            stack.addArrangedSubview(label("No account needed. Your scores are kept for this \(Device.name); create an account any time to keep them on all your devices.",
                                            style: .footnote, color: .secondaryLabel))
             controls.append(guest)
         }

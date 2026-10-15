@@ -64,9 +64,7 @@ final class ShareCodeViewController: UIViewController {
         stack.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 24),
-            stack.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor, constant: 8),
-            stack.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor, constant: -8),
-        ])
+        ] + NSLayoutConstraint.readable(stack, in: view.safeAreaLayoutGuide, maxWidth: 460, inset: 24))
         load()
     }
 

@@ -66,3 +66,24 @@ extension NoteValue.Kind {
         }
     }
 }
+
+extension NSLayoutConstraint {
+    /// Keeps `view` centred in `guide`, as wide as the guide allows (less `inset` each side) up to `maxWidth`:
+    /// full width on a phone, a comfortable column on an iPad.
+    static func readable(_ view: UIView, in guide: UILayoutGuide, maxWidth: CGFloat, inset: CGFloat) -> [NSLayoutConstraint] {
+        let fill = view.widthAnchor.constraint(equalTo: guide.widthAnchor, constant: -2 * inset)
+        fill.priority = .defaultHigh
+        return [
+            view.centerXAnchor.constraint(equalTo: guide.centerXAnchor),
+            view.leadingAnchor.constraint(greaterThanOrEqualTo: guide.leadingAnchor, constant: inset),
+            view.widthAnchor.constraint(lessThanOrEqualToConstant: maxWidth),
+            fill,
+        ]
+    }
+}
+
+enum Device {
+    /// "iPad" or "iPhone", for text that talks about this device.
+    @MainActor static var name: String { UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone" }
+    @MainActor static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+}

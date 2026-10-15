@@ -38,6 +38,9 @@ final class AppCoordinator: NSObject, Coordinator {
     private let dependencies: AppDependencies
     private let factory: ViewFactory
     private let libraryNav = UINavigationController()
+    /// iPad: the library in a sidebar, the open score beside it (nil on iPhone, where scores push onto the library).
+    private var split: UISplitViewController?
+    private let detailNav = UINavigationController()
     private let tunerNav = UINavigationController()
     private let settingsNav = UINavigationController()
 
@@ -57,7 +60,28 @@ final class AppCoordinator: NSObject, Coordinator {
         libraryNav.tabBarItem = UITabBarItem(title: "Library", image: UIImage(systemName: "music.note.list"), tag: 0)
         tunerNav.tabBarItem = UITabBarItem(title: "Tuner", image: UIImage(systemName: "tuningfork"), tag: 1)
         settingsNav.tabBarItem = UITabBarItem(title: "Settings", image: UIImage(systemName: "gearshape"), tag: 2)
-        root.setViewControllers([libraryNav, tunerNav, settingsNav], animated: false)
+        if Device.isPad {
+            let split = UISplitViewController(style: .doubleColumn)
+            split.setViewController(libraryNav, for: .primary)
+            split.setViewController(detailNav, for: .secondary)
+            split.preferredDisplayMode = .oneBesideSecondary
+            split.preferredSplitBehavior = .tile
+            split.preferredPrimaryColumnWidthFraction = 0.36
+            split.maximumPrimaryColumnWidth = 420
+            split.delegate = self
+            split.tabBarItem = libraryNav.tabBarItem
+            detailNav.setViewControllers([EmptyDetailViewController()], animated: false)
+            self.split = split
+            root.setViewControllers([split, tunerNav, settingsNav], animated: false)
+            // A score deleted (here or on another device) leaves the detail column.
+            dependencies.library.summaries.receive(on: DispatchQueue.main).sink { [weak self] summaries in
+                guard let self, let shown = self.detailNav.viewControllers.first as? ScoreViewController,
+                      !summaries.contains(where: { $0.id == shown.scoreId }) else { return }
+                self.detailNav.setViewControllers([EmptyDetailViewController()], animated: false)
+            }.store(in: &bag)
+        } else {
+            root.setViewControllers([libraryNav, tunerNav, settingsNav], animated: false)
+        }
         // Nobody signed in (first launch, or the session ended): the sign-in screen, over everything.
         dependencies.account.state.map { $0 == .signedOut }.removeDuplicates().receive(on: DispatchQueue.main)
             .sink { [weak self] signedOut in if signedOut { self?.showWelcome() } }.store(in: &bag)
@@ -192,7 +216,7 @@ final class AppCoordinator: NSObject, Coordinator {
         Task { @MainActor in
             if await dependencies.signOut() { return }
             let a = UIAlertController(title: "Some Changes Haven't Synced",
-                                      message: "Signing out now removes them from this iPhone. Connect to the server and try again to keep them.",
+                                      message: "Signing out now removes them from this \(Device.name). Connect to the server and try again to keep them.",
                                       preferredStyle: .alert)
             a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
             a.addAction(UIAlertAction(title: "Sign Out Anyway", style: .destructive) { _ in
@@ -204,7 +228,7 @@ final class AppCoordinator: NSObject, Coordinator {
 
     func deleteAccount() {
         let a = UIAlertController(title: "Delete Your Account?",
-                                  message: "This deletes your account and every score, original and collection in it, on the server and on this iPhone. It can't be undone.",
+                                  message: "This deletes your account and every score, original and collection in it, on the server and on this \(Device.name). It can't be undone.",
                                   preferredStyle: .alert)
         a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         a.addAction(UIAlertAction(title: "Delete Account", style: .destructive) { _ in
@@ -231,7 +255,12 @@ final class AppCoordinator: NSObject, Coordinator {
     func openScore(_ id: UUID) {
         root.selectedIndex = 0
         guard let vc = factory.score(id) else { return }
-        libraryNav.pushViewController(vc, animated: true)
+        if let split {
+            detailNav.setViewControllers([vc], animated: false)
+            split.show(.secondary)
+        } else {
+            libraryNav.pushViewController(vc, animated: true)
+        }
     }
 
     func openCollection(_ id: UUID) {
@@ -438,5 +467,39 @@ extension AppCoordinator: @preconcurrency VNDocumentCameraViewControllerDelegate
 
     func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFailWithError error: Error) {
         controller.dismiss(animated: true) { self.alert("Scanning failed", error.localizedDescription) }
+    }
+}
+
+extension AppCoordinator: UISplitViewControllerDelegate {
+    /// iPad in a narrow window (Split View, Slide Over): with no score open, show the library, not the
+    /// empty placeholder.
+    func splitViewController(_ svc: UISplitViewController,
+                             topColumnForCollapsingToProposedTopColumn proposedTopColumn: UISplitViewController.Column) -> UISplitViewController.Column {
+        detailNav.viewControllers.first is EmptyDetailViewController ? .primary : proposedTopColumn
+    }
+}
+
+/// The iPad's detail column before a score is chosen.
+final class EmptyDetailViewController: UIViewController {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = Theme.paper
+        let icon = UIImageView(image: UIImage(systemName: "music.note.list"))
+        icon.tintColor = Theme.accent.withAlphaComponent(0.5)
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 44, weight: .light)
+        let label = UILabel()
+        label.text = "Choose a score to read, play and practise."
+        label.font = Fonts.serif(20)
+        label.textColor = .secondaryLabel
+        label.numberOfLines = 0
+        label.textAlignment = .center
+        let stack = UIStackView(arrangedSubviews: [icon, label])
+        stack.axis = .vertical
+        stack.spacing = 14
+        stack.alignment = .center
+        view.addSubview(stack)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([stack.centerYAnchor.constraint(equalTo: view.centerYAnchor)]
+                                    + NSLayoutConstraint.readable(stack, in: view.safeAreaLayoutGuide, maxWidth: 360, inset: 24))
     }
 }

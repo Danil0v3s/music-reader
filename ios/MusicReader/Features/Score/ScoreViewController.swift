@@ -18,6 +18,7 @@ final class ScoreViewController: UIViewController {
     /// Someone else's shared score, read-only: importing saves my own copy.
     private let onImport: (() -> Void)?
     private var isShared: Bool { onImport != nil }
+    var scoreId: UUID { score.id }
 
     private let scroll = UIScrollView()
     private let scoreView = ScoreView()
@@ -66,21 +67,21 @@ final class ScoreViewController: UIViewController {
         [scroll, scoreView, transport, infoPill].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: view.topAnchor),
-            scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            // The safe area, not the edges: on iPad the library sidebar floats over this column's left side.
+            scroll.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             scoreView.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             scoreView.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
             scoreView.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
             scoreView.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             scoreView.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
-            transport.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
-            transport.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+
             transport.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
             infoPill.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             infoPill.bottomAnchor.constraint(equalTo: transport.topAnchor, constant: -10),
             infoPill.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 16),
-        ])
+        ] + NSLayoutConstraint.readable(transport, in: view.safeAreaLayoutGuide, maxWidth: 640, inset: 12))
         scroll.contentInset.bottom = 110
 
         scoreView.staffSpace = settings.value.staffSpace
@@ -135,6 +136,45 @@ final class ScoreViewController: UIViewController {
             transport.tempoText = tempoLabel()
             moreItem.menu = moreMenu()
         }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        becomeFirstResponder()   // for the keyboard and page-turn pedals
+    }
+
+    // MARK: Keyboard and page-turn pedals
+
+    override var canBecomeFirstResponder: Bool { true }
+
+    /// Space plays and pauses; Page Down/Up and the arrow keys turn the page (Bluetooth page-turn pedals send
+    /// these), so a score on a music stand can be read without touching the screen.
+    override var keyCommands: [UIKeyCommand]? {
+        let play = UIKeyCommand(title: "Play / Pause", action: #selector(keyPlay), input: " ")
+        let forward = [UIKeyCommand.inputPageDown, UIKeyCommand.inputDownArrow, UIKeyCommand.inputRightArrow].map {
+            UIKeyCommand(title: "Next Page", action: #selector(keyNextPage), input: $0)
+        }
+        let back = [UIKeyCommand.inputPageUp, UIKeyCommand.inputUpArrow, UIKeyCommand.inputLeftArrow].map {
+            UIKeyCommand(title: "Previous Page", action: #selector(keyPreviousPage), input: $0)
+        }
+        let all = [play] + forward + back
+        all.forEach { $0.wantsPriorityOverSystemBehavior = true }
+        // Only the first of each shows in the keyboard shortcuts overlay.
+        (forward.dropFirst() + back.dropFirst()).forEach { $0.attributes = .hidden }
+        return all
+    }
+
+    @objc private func keyPlay() { togglePlay() }
+    @objc private func keyNextPage() { turnPage(1) }
+    @objc private func keyPreviousPage() { turnPage(-1) }
+
+    /// Scrolls a screenful, keeping a line of overlap so the eye has somewhere to land.
+    private func turnPage(_ direction: CGFloat) {
+        let inset = scroll.adjustedContentInset
+        let visible = scroll.bounds.height - inset.top - inset.bottom
+        let minY = -inset.top, maxY = max(minY, scroll.contentSize.height - scroll.bounds.height + inset.bottom)
+        let target = min(maxY, max(minY, scroll.contentOffset.y + direction * (visible - scoreView.staffSpace * 10)))
+        scroll.setContentOffset(CGPoint(x: 0, y: target), animated: true)
     }
 
     override func viewWillDisappear(_ animated: Bool) {

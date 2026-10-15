@@ -99,7 +99,7 @@ final class SettingsViewController: UITableViewController {
         switch Section(rawValue: section)! {
         case .account:
             account.user?.isGuest == true
-                ? "You're using Music Reader as a guest: your scores are kept for this iPhone only. Sign in to keep them on all your devices; nothing is lost."
+                ? "You're using Music Reader as a guest: your scores are kept for this \(Device.name) only. Sign in to keep them on all your devices; nothing is lost."
                 : nil
         case .server:
             "The Music Reader server keeps your library and reads PDFs and scans (Audiveris). Enter its address, e.g. 192.168.1.20:8765." + (serverStatus.isEmpty ? "" : "\n\n" + serverStatus)

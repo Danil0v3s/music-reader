@@ -56,11 +56,9 @@ final class TunerViewController: UIViewController {
         stack.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 40),
-            stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
             stack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -24),
             strings.heightAnchor.constraint(equalToConstant: 76),
-        ])
+        ] + NSLayoutConstraint.readable(stack, in: view.safeAreaLayoutGuide, maxWidth: 640, inset: 24))
         mic.onReading = { [weak self] r in self?.heard(r) }
         meter.show(target: nil, caption: "Play a note", heard: nil, cents: nil)
     }
