@@ -10,7 +10,8 @@ final class TransportBar: UIView {
     var onLoop: (() -> Void)?
 
     var isPlaying = false { didSet { updatePlay() } }
-    var isBusy = false { didSet { isBusy ? spinner.startAnimating() : spinner.stopAnimating(); play.isHidden = isBusy } }
+    /// Getting the sound ready: the play button stays where it is (so the bar keeps its size) and spins.
+    var isBusy = false { didSet { updatePlay() } }
     var metronome = false { didSet { updateMetronome() } }
     var tempoText = "" { didSet { tempoButton.configuration?.title = tempoText } }
     /// The bars playing on repeat ("5–8"), or nil when not looping.
@@ -21,7 +22,6 @@ final class TransportBar: UIView {
     private let tempoButton = UIButton(type: .system)
     private let metronomeButton = UIButton(type: .system)
     private let loopButton = UIButton(type: .system)
-    private let spinner = UIActivityIndicatorView(style: .medium)
     private let scales: [Double] = [0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25]
     /// The practice tempo ticked in the menu (1 = as written).
     var scale = 1.0 { didSet { tempoButton.menu = tempoMenu() } }
@@ -80,10 +80,10 @@ final class TransportBar: UIView {
 
         loopButton.addAction(UIAction { [weak self] _ in self?.onLoop?() }, for: .primaryActionTriggered)
 
-        let row = UIStackView(arrangedSubviews: [rewind, play, spinner, tempoButton, loopButton, metronomeButton])
+        let row = UIStackView(arrangedSubviews: [rewind, play, tempoButton, loopButton, metronomeButton])
         row.alignment = .center
         row.spacing = 6
-        row.setCustomSpacing(14, after: spinner)
+        row.setCustomSpacing(14, after: play)
         pill.addSubview(row)
         row.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -97,7 +97,6 @@ final class TransportBar: UIView {
             row.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -10),
             play.widthAnchor.constraint(equalToConstant: 54),
             play.heightAnchor.constraint(equalToConstant: 54),
-            spinner.widthAnchor.constraint(equalToConstant: 0),
         ])
         tempoButton.setContentHuggingPriority(.defaultLow, for: .horizontal)
         updatePlay()
@@ -109,7 +108,9 @@ final class TransportBar: UIView {
 
     private func updatePlay() {
         play.configuration?.image = UIImage(systemName: isPlaying ? "pause.fill" : "play.fill")
-        play.accessibilityLabel = isPlaying ? "Pause" : "Play"
+        play.configuration?.showsActivityIndicator = isBusy
+        play.isUserInteractionEnabled = !isBusy
+        play.accessibilityLabel = isBusy ? "Loading" : isPlaying ? "Pause" : "Play"
     }
 
     private func updateLoop() {
