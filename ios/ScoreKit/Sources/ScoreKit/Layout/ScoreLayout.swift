@@ -23,12 +23,15 @@ public struct LayoutOptions: Hashable, Sendable {
     public var width: CGFloat
     public var margin: CGFloat
     public var showHeader: Bool
+    /// Bars on every line, as in a printed edition; nil fits as many as the width allows.
+    public var measuresPerLine: Int?
 
-    public init(staffSpace: CGFloat = 8, width: CGFloat, margin: CGFloat = 16, showHeader: Bool = true) {
+    public init(staffSpace: CGFloat = 8, width: CGFloat, margin: CGFloat = 16, showHeader: Bool = true, measuresPerLine: Int? = nil) {
         self.staffSpace = staffSpace
         self.width = width
         self.margin = margin
         self.showHeader = showHeader
+        self.measuresPerLine = measuresPerLine
     }
 }
 
@@ -228,9 +231,13 @@ private struct Builder {
             }
         }
 
-        // Greedy line breaking on natural widths.
+        // Greedy line breaking on natural widths (or a fixed number of bars per line).
         var lines: [Range<Int>] = []
         var start = 0
+        while let n = o.measuresPerLine, n > 0, start < part.measures.count {
+            lines.append(start..<min(start + n, part.measures.count))
+            start = lines.last!.upperBound
+        }
         while start < part.measures.count {
             let available = x1 - x0 - linePrefix(at: start)
             var used: CGFloat = 0
