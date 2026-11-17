@@ -64,42 +64,81 @@ public final class SampleBank: @unchecked Sendable {
 
     /// Loads `manifest.json` and every note file from a folder (AAC, AIFF or WAV).
     public static func load(from directory: URL) throws -> SampleBank {
-        let manifest = try JSONDecoder().decode(SampleManifest.self, from: Data(contentsOf: directory.appendingPathComponent("manifest.json")))
+        var manifest = try JSONDecoder().decode(SampleManifest.self, from: Data(contentsOf: directory.appendingPathComponent("manifest.json")))
         var audio: [Int: [Float]] = [:]
         for (i, note) in manifest.notes.enumerated() {
-            audio[i] = levelled(try readMono(directory.appendingPathComponent(note.file)),
-                                loopStart: note.loopStart, loopEnd: note.loopEnd, sampleRate: manifest.sampleRate)
+            let samples = try readMono(directory.appendingPathComponent(note.file))
+            manifest.notes[i].loopStart = alignedLoopStart(samples, loopStart: note.loopStart, loopEnd: note.loopEnd, sampleRate: manifest.sampleRate)
+            audio[i] = levelled(samples, loopStart: manifest.notes[i].loopStart, loopEnd: note.loopEnd, sampleRate: manifest.sampleRate)
         }
         return SampleBank(manifest: manifest, audio: audio)
     }
 
-    /// Evens out the sustain loop. Recorded strokes swell and fade, so a long note looping from the loop's end
-    /// back to its start jumped in level and colour: it sounded like a second bow stroke. Inside the loop the
-    /// level is held at what it is where the loop begins, so the jump back meets the same level.
-    static func levelled(_ samples: [Float], loopStart: Int, loopEnd: Int, sampleRate: Double) -> [Float] {
-        let window = Int(0.06 * sampleRate)
-        guard loopStart >= 0, loopEnd < samples.count, loopEnd - loopStart > 4 * window else { return samples }
+    /// The loop start moved (by up to 20 ms) to where the waveform best matches the loop's end, so the
+    /// crossfade at the jump back joins two stretches in phase instead of partly cancelling.
+    static func alignedLoopStart(_ samples: [Float], loopStart: Int, loopEnd: Int, sampleRate: Double) -> Int {
+        let span = Int(0.03 * sampleRate), reach = Int(0.02 * sampleRate)
+        guard loopEnd < samples.count, loopStart - span - reach >= 0, loopEnd - span > loopStart + reach else { return loopStart }
+        // The end of the loop, which the jump leaves, against the stretch just before each candidate start.
+        let endSlice = Array(samples[(loopEnd - span)..<loopEnd])
+        let endEnergy = endSlice.reduce(0) { $0 + $1 * $1 }
+        var best = loopStart, bestScore = -Float.infinity
+        for start in stride(from: loopStart - reach, through: loopStart + reach, by: 4) {
+            var dot: Float = 0, energy: Float = 0
+            for k in 0..<span {
+                let v = samples[start - span + k]
+                dot += v * endSlice[k]; energy += v * v
+            }
+            let score = dot / max(1e-9, (energy * endEnergy).squareRoot())
+            if score > bestScore { bestScore = score; best = start }
+        }
+        return best
+    }
+
+    /// Evens out each recorded stroke after its bite. The players' strokes dip and swell in their first half
+    /// second (42 of the 92 recordings dip more than 3 dB) and swell again inside the sustain loop, so notes
+    /// sounded like a second stroke: quarters (above all slurred ones, which start 0.11 s in, inside the dip)
+    /// and long notes when the loop jumped back. From `attack` on, the level follows the sustain level (where
+    /// the loop begins); the first `attack` seconds, the bow's bite, are left as recorded.
+    static func levelled(_ samples: [Float], loopStart: Int, loopEnd: Int, sampleRate: Double, attack: Double = 0.05) -> [Float] {
+        let window = Int(0.04 * sampleRate)
+        let start = Int(attack * sampleRate)
+        guard start < loopStart, loopEnd < samples.count, loopEnd - loopStart > 4 * window else { return samples }
         func rms(around c: Int) -> Float {
             let lo = max(0, c - window / 2), hi = min(samples.count, c + window / 2)
             var sum: Float = 0
             for i in lo..<hi { sum += samples[i] * samples[i] }
             return sqrt(sum / Float(max(1, hi - lo)))
         }
-        let target = rms(around: loopStart + window / 2)
+        let target: Float = {
+            let a = loopStart, b = min(samples.count, loopStart + Int(0.1 * sampleRate))
+            var sum: Float = 0
+            for i in a..<b { sum += samples[i] * samples[i] }
+            return sqrt(sum / Float(max(1, b - a)))
+        }()
         guard target > 1e-4 else { return samples }
-        // Gain on a coarse grid (every 10 ms), interpolated, so it follows the swell without touching the waveform's detail.
+        // Gain on a coarse grid (every 10 ms), smoothed over 50 ms and interpolated: it follows the swell
+        // without touching the waveform's detail or fluttering. At most +12 / -6 dB.
         let hop = Int(0.01 * sampleRate)
-        var gains: [Float] = []
-        var c = loopStart
+        var raw: [Float] = []
+        var c = start
         while c <= loopEnd + hop {
-            gains.append(min(2, max(0.5, target / max(rms(around: c), 1e-4))))
+            raw.append(min(4, max(0.5, target / max(rms(around: c), 1e-4))))
             c += hop
         }
+        let gains = raw.indices.map { k -> Float in
+            let lo = max(0, k - 2), hi = min(raw.count - 1, k + 2)
+            return raw[lo...hi].reduce(0, +) / Float(hi - lo + 1)
+        }
+        // The correction comes in over 40 ms after the bite, so the attack joins the levelled body smoothly.
+        let ramp = Float(0.04 * sampleRate)
         var out = samples
-        for i in loopStart..<min(samples.count, loopEnd + hop) {
-            let f = Float(i - loopStart) / Float(hop)
+        for i in start..<min(samples.count, loopEnd + hop) {
+            let f = Float(i - start) / Float(hop)
             let k = min(gains.count - 2, Int(f))
-            out[i] *= gains[k] + (gains[k + 1] - gains[k]) * (f - Float(k))
+            let g = gains[k] + (gains[k + 1] - gains[k]) * (f - Float(k))
+            let r = min(1, Float(i - start) / ramp)
+            out[i] *= 1 + (g - 1) * r
         }
         return out
     }
@@ -179,10 +218,11 @@ extension Synth {
                     guard pos < Double(src.count - 1) else { break }
                     var s = Self.read(src, pos)
                     // Approaching the loop end, fade into the matching point at the loop start.
-                    // Equal power: the two ends aren't in phase, and a straight crossfade dipped in the middle.
+                    // The two ends are levelled to the same loudness but only partly in phase: a straight
+                    // crossfade dips in the middle and an equal-power one bulges, so this is halfway between.
                     if canLoop, pos > loopEnd - Double(crossfade) {
-                        let w = Float((pos - (loopEnd - Double(crossfade))) / Double(crossfade)) * .pi / 2
-                        s = s * cos(w) + Self.read(src, pos - loopLength) * sin(w)
+                        let b = Float((pos - (loopEnd - Double(crossfade))) / Double(crossfade)), a = 1 - b
+                        s = (s * a + Self.read(src, pos - loopLength) * b) / pow(a * a + b * b, 0.25)
                     }
                     filtered += alpha * (s - filtered)
                     let t = Double(i) / sampleRate
