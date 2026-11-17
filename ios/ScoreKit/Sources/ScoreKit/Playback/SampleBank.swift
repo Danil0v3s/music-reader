@@ -67,9 +67,41 @@ public final class SampleBank: @unchecked Sendable {
         let manifest = try JSONDecoder().decode(SampleManifest.self, from: Data(contentsOf: directory.appendingPathComponent("manifest.json")))
         var audio: [Int: [Float]] = [:]
         for (i, note) in manifest.notes.enumerated() {
-            audio[i] = try readMono(directory.appendingPathComponent(note.file))
+            audio[i] = levelled(try readMono(directory.appendingPathComponent(note.file)),
+                                loopStart: note.loopStart, loopEnd: note.loopEnd, sampleRate: manifest.sampleRate)
         }
         return SampleBank(manifest: manifest, audio: audio)
+    }
+
+    /// Evens out the sustain loop. Recorded strokes swell and fade, so a long note looping from the loop's end
+    /// back to its start jumped in level and colour: it sounded like a second bow stroke. Inside the loop the
+    /// level is held at what it is where the loop begins, so the jump back meets the same level.
+    static func levelled(_ samples: [Float], loopStart: Int, loopEnd: Int, sampleRate: Double) -> [Float] {
+        let window = Int(0.06 * sampleRate)
+        guard loopStart >= 0, loopEnd < samples.count, loopEnd - loopStart > 4 * window else { return samples }
+        func rms(around c: Int) -> Float {
+            let lo = max(0, c - window / 2), hi = min(samples.count, c + window / 2)
+            var sum: Float = 0
+            for i in lo..<hi { sum += samples[i] * samples[i] }
+            return sqrt(sum / Float(max(1, hi - lo)))
+        }
+        let target = rms(around: loopStart + window / 2)
+        guard target > 1e-4 else { return samples }
+        // Gain on a coarse grid (every 10 ms), interpolated, so it follows the swell without touching the waveform's detail.
+        let hop = Int(0.01 * sampleRate)
+        var gains: [Float] = []
+        var c = loopStart
+        while c <= loopEnd + hop {
+            gains.append(min(2, max(0.5, target / max(rms(around: c), 1e-4))))
+            c += hop
+        }
+        var out = samples
+        for i in loopStart..<min(samples.count, loopEnd + hop) {
+            let f = Float(i - loopStart) / Float(hop)
+            let k = min(gains.count - 2, Int(f))
+            out[i] *= gains[k] + (gains[k + 1] - gains[k]) * (f - Float(k))
+        }
+        return out
     }
 
     public static func readMono(_ url: URL) throws -> [Float] {
@@ -108,7 +140,8 @@ extension Synth {
     public func renderSampled(_ schedule: PlaybackSchedule, bank: SampleBank, from start: Double = 0, leadIn: Double = 0) -> [Float] {
         let total = Int((schedule.duration - start + leadIn + 1.0) * sampleRate)
         var out = [Float](repeating: 0, count: max(total, 1))
-        let crossfade = Int(0.04 * bank.manifest.sampleRate)
+        // Long enough that the join in a sustained note can't be heard.
+        let crossfade = Int(0.12 * bank.manifest.sampleRate)
         let releaseTime = 0.09          // the string's decay after the bow stops (time constant)
         let releaseLength = Int(0.45 * sampleRate)
         let legatoSkip = 0.11           // a slurred note starts past the recorded bow attack…
@@ -146,9 +179,10 @@ extension Synth {
                     guard pos < Double(src.count - 1) else { break }
                     var s = Self.read(src, pos)
                     // Approaching the loop end, fade into the matching point at the loop start.
+                    // Equal power: the two ends aren't in phase, and a straight crossfade dipped in the middle.
                     if canLoop, pos > loopEnd - Double(crossfade) {
-                        let w = Float((pos - (loopEnd - Double(crossfade))) / Double(crossfade))
-                        s = s * (1 - w) + Self.read(src, pos - loopLength) * w
+                        let w = Float((pos - (loopEnd - Double(crossfade))) / Double(crossfade)) * .pi / 2
+                        s = s * cos(w) + Self.read(src, pos - loopLength) * sin(w)
                     }
                     filtered += alpha * (s - filtered)
                     let t = Double(i) / sampleRate
